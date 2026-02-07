@@ -34,7 +34,21 @@ class MorningCircleState(TypedDict):
     # Response Generation
     response: str
 
+    # Citation Lock (Grounding Enforcement)
+    citation_validated: Optional[bool]  # Whether citations were validated
+    citation_lock: Optional[dict[str, Any]]  # Citation lock metadata
+    citation_warning: Optional[str]  # Warning if validation failed
+
     # Hybrid LLM Routing Metadata
     llm_provider_used: Optional[str]  # "local" or "cloud"
     llm_routing_reason: Optional[str]  # Why this provider was chosen
     complexity_score: Optional[float]  # Query complexity (0-1)
+
+    # Behavioral Signals (for adaptive UI)
+    behavioral_signals: Optional[dict[str, Any]]  # Detected behavioral patterns
+    suggested_mode: Optional[str]  # Suggested UI mode based on behavior
+    urgency: Optional[Literal["none", "attention", "intervention"]]  # Intervention urgency
+
+    # Learning Events (for mastery tracking)
+    consecutive_errors: Optional[int]  # Consecutive incorrect answers
+    time_spent_seconds: Optional[int]  # Time on current question

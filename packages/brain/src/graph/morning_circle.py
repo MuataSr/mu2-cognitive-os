@@ -131,13 +131,91 @@ async def generate_response(state: MorningCircleState) -> MorningCircleState:
     return await generate_response_with_context(state)
 
 
-# Node 4: Suggest Mode
+# Node 4: Behavioral Analysis
+async def analyze_behavior(state: MorningCircleState) -> MorningCircleState:
+    """
+    Detect behavioral signals for adaptive UI triggering
+
+    This node analyzes:
+    - Recent learning events (errors, time spent)
+    - User sentiment
+    - Suggests appropriate UI mode based on behavioral state
+
+    Input: Recent learning events, time spent, sentiment
+    Output: state["behavioral_signals"] = {...}
+    """
+    from src.services.behavioral_detector import behavioral_detector, LearningEvent
+
+    user_id = state.get("user_id", "anonymous")
+    sentiment = state.get("sentiment_label", "neutral")
+    mode = state.get("mode", "standard")
+
+    # Get behavioral signals
+    # In a full implementation, these would come from a database
+    # For now, we use simple heuristics based on sentiment
+
+    # Create mock learning events based on sentiment
+    # If sentiment is negative, assume some struggles
+    mock_events = []
+    if sentiment == "negative":
+        # Simulate a struggling user
+        mock_events.append(LearningEvent(
+            user_id=user_id,
+            skill_id="current",
+            is_correct=False,
+            attempts=3,
+            time_spent_seconds=180
+        ))
+        state["consecutive_errors"] = 1
+
+    # Analyze behavioral signals
+    try:
+        signals = await behavioral_detector.analyze_behavioral_signals(
+            user_id=user_id,
+            learning_events=mock_events,
+            clickstream=[],  # Would come from frontend
+            time_on_task_seconds=60  # Default
+        )
+
+        # Store signals in state
+        state["behavioral_signals"] = {
+            "is_frustrated": signals.is_frustrated,
+            "is_engaged": signals.is_engaged,
+            "is_struggling": signals.is_struggling,
+            "confidence": signals.confidence,
+            "reasoning": signals.reasoning
+        }
+
+        # Update mode based on behavioral signals
+        state["suggested_mode"] = signals.suggested_mode
+        state["urgency"] = signals.urgency
+
+        # Override mode if urgent intervention needed
+        if signals.urgency == "intervention":
+            state["mode"] = "high_contrast_focus"
+        elif signals.suggested_mode != mode:
+            # Suggest mode change but don't force it
+            state["mode"] = signals.suggested_mode
+
+    except Exception as e:
+        # Fallback to simple mode suggestion
+        state["suggested_mode"] = mode
+        state["urgency"] = "none"
+        state["behavioral_signals"] = {"error": str(e)}
+
+    return state
+
+
+# Node 5: Suggest Mode (Legacy - kept for compatibility)
 async def suggest_mode(state: MorningCircleState) -> MorningCircleState:
     """
     Suggest UI mode based on context
 
     Focus mode: For complex, lengthy content
     Standard mode: For quick interactions
+
+    NOTE: This is now primarily handled by analyze_behavior
+    This function is kept for backwards compatibility
     """
     word_count = len(state["message"].split())
     is_complex = word_count > 50 or state["retrieval_type"] == "concept"
@@ -161,17 +239,21 @@ def build_morning_circle_graph() -> StateGraph:
     workflow.add_node("sentiment", analyze_sentiment)
     workflow.add_node("route", route_context)
     workflow.add_node("retrieve", route_retrieval)  # New retrieval node
+    workflow.add_node("analyze_behavior", analyze_behavior)  # Behavioral detection
     workflow.add_node("generate", generate_response)
-    workflow.add_node("suggest_mode", suggest_mode)
+    workflow.add_node("suggest_mode", suggest_mode)  # Legacy, kept for compatibility
 
     # Define edges - Start with anonymization
     workflow.set_entry_point("anonymize")
     workflow.add_edge("anonymize", "sentiment")
     workflow.add_edge("sentiment", "route")
     workflow.add_edge("route", "retrieve")  # Route to retrieval
-    workflow.add_edge("retrieve", "suggest_mode")  # Then to mode suggestion
-    workflow.add_edge("suggest_mode", "generate")
+    workflow.add_edge("retrieve", "analyze_behavior")  # Behavioral analysis
+    workflow.add_edge("analyze_behavior", "generate")  # Then to generation
     workflow.add_edge("generate", END)
+
+    # Note: suggest_mode is kept but not in the main flow
+    # It can be used separately if needed
 
     return workflow.compile()
 

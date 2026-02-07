@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     # LibreTexts ADAPT API
     libretexts_api_url: str = "https://adapt.libretexts.org/api"
     libretexts_api_key: str = ""
+    libretexts_institution_id: Optional[str] = None
+    adapt_import_batch_size: int = 10
+    adapt_max_import_count: int = 100
+    adapt_cache_duration_hours: int = 24
 
     # Embeddings
     embedding_model: str = "nomic-embed-text"

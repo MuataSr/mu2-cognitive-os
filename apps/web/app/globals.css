@@ -362,3 +362,65 @@
     animation: none;
   }
 }
+
+/* ===================================
+   3D Exploration Mode Styles
+   =================================== */
+
+/* Transition styles for mode switching */
+.snap-transition,
+.morph-transition,
+.fade-transition,
+.slide-transition {
+  transition: none !important;
+}
+
+.snap-transition * {
+  animation: none !important;
+  transition: none !important;
+}
+
+.morph-transition * {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease !important;
+}
+
+.fade-transition * {
+  transition: opacity 0.3s ease !important;
+}
+
+.slide-transition * {
+  transition: transform 0.3s ease !important;
+}
+
+/* Force reduced motion class */
+.force-reduced-motion *,
+.force-reduced-motion *::before,
+.force-reduced-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+/* 3D Canvas container */
+.exploration-layout {
+  position: relative;
+}
+
+.exploration-layout canvas {
+  outline: none;
+}
+
+.exploration-layout canvas:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* High contrast mode overrides */
+[data-mode="high_contrast_focus"] .exploration-layout {
+  background: #000000;
+  border: 3px solid #FFFFFF;
+}
+
+[data-mode="high_contrast_focus"] .exploration-layout canvas {
+  filter: contrast(1.2) saturate(1.1);
+}

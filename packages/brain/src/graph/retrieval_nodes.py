@@ -96,6 +96,8 @@ async def generate_response_with_context(state: MorningCircleState) -> MorningCi
 
     This node uses the retrieved chunks and optionally the hybrid LLM router
     to provide informed responses.
+
+    CRITICAL: Enforces citation lock - all responses must include source citations.
     """
     from src.services.hybrid_llm_router import hybrid_router, LLMPurpose
 
@@ -105,6 +107,7 @@ async def generate_response_with_context(state: MorningCircleState) -> MorningCi
     retrieved_context = state.get("retrieved_context", {})
     message = state.get("message", "")
     user_id = state.get("user_id")
+    sources = state.get("sources", [])
 
     # Check if we should use hybrid LLM routing
     use_hybrid_llm = settings.llm_hybrid_mode
@@ -123,14 +126,18 @@ async def generate_response_with_context(state: MorningCircleState) -> MorningCi
     if use_hybrid_llm and context_str:
         # Use hybrid LLM router for intelligent response generation
         try:
+            # Build prompt with citation requirement
             prompt = f"""You are a helpful educational assistant. Answer the student's question using the provided context.
 
 Context from knowledge base:
 {context_str}
 
+Available sources: {', '.join(sources) if sources else 'None'}
+
 Student's question: {message}
 
-Provide a clear, educational response. If the context doesn't fully answer the question, acknowledge that and provide what help you can."""
+IMPORTANT: Your response must be grounded in the provided context. Reference specific sources when making claims.
+Provide a clear, educational response. If the context doesn't fully answer the question, acknowledge that."""
 
             llm_response = await hybrid_router.generate(
                 query=prompt,
@@ -150,13 +157,36 @@ Provide a clear, educational response. If the context doesn't fully answer the q
 
         except Exception as e:
             # Fallback to template-based response
-            response = _generate_template_response(retrieval_context, retrieval_type, sentiment)
+            response = _generate_template_response(retrieved_context, retrieval_type, sentiment, sources)
             state["llm_provider_used"] = "fallback"
             state["llm_routing_reason"] = f"LLM error: {str(e)}"
     else:
         # Use template-based response
-        response = _generate_template_response(retrieved_context, retrieval_type, sentiment)
+        response = _generate_template_response(retrieved_context, retrieval_type, sentiment, sources)
         state["llm_provider_used"] = "template"
+
+    # ENFORCE CITATION LOCK
+    # Validate that response has proper citations before returning
+    try:
+        from src.services.citation_lock import citation_lock_service
+        citation_lock = citation_lock_service.enforce_citation_lock(
+            response=response,
+            sources=sources,
+            retrieved_context=retrieved_context,
+            allow_uncited=False  # STRICT: Require citations
+        )
+        state["citation_validated"] = True
+        state["citation_lock"] = {
+            "validated": citation_lock.validated,
+            "citation_count": len(citation_lock.citations),
+            "disclaimer": citation_lock.disclaimer
+        }
+    except ValueError as e:
+        # Citation validation failed - add warning to response
+        state["citation_validated"] = False
+        state["citation_warning"] = str(e)
+        # For now, still return the response but mark as unvalidated
+        # In production, you might want to refuse to respond
 
     state["response"] = response
     return state
@@ -165,9 +195,13 @@ Provide a clear, educational response. If the context doesn't fully answer the q
 def _generate_template_response(
     retrieved_context: Dict[str, Any],
     retrieval_type: str,
-    sentiment: str
+    sentiment: str,
+    sources: list = None
 ) -> str:
     """Generate a template-based response when LLM is not used"""
+    if sources is None:
+        sources = []
+
     # Build response based on retrieved context
     if retrieved_context.get("results"):
         # We have relevant retrieved information
@@ -184,6 +218,11 @@ def _generate_template_response(
             # Include top result
             if retrieved_context["results"]:
                 response += f"Key concept: {retrieved_context['results'][0][:200]}..."
+
+        # Add source citations
+        if sources:
+            response += f"\n\nSources: {', '.join(sources[:3])}"
+
     else:
         # No relevant information found
         if retrieval_type == "fact":

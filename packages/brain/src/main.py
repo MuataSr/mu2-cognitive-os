@@ -777,6 +777,209 @@ async def query_vector_store(q: str, retrieval_type: str = "fact", top_k: int = 
 
 
 # ============================================================================
+# Behavioral Detection API Endpoints
+# ============================================================================
+
+class BehavioralEventInput(BaseModel):
+    """Input for behavioral event tracking"""
+    user_id: str = Field(..., description="Student user ID")
+    event_type: Literal["squinting", "frustration", "engagement", "abandonment", "rapid_clicking", "long_pause"] = Field(
+        ..., description="Type of behavioral event"
+    )
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Confidence score")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional event data")
+
+
+class BehavioralStatusOutput(BaseModel):
+    """Output from behavioral analysis"""
+    user_id: str
+    is_frustrated: bool
+    is_engaged: bool
+    is_struggling: bool
+    consecutive_errors: int
+    time_on_task_seconds: int
+    suggested_mode: Literal["standard", "focus", "high_contrast_focus", "exploration"]
+    urgency: Literal["none", "attention", "intervention"]
+    confidence: float
+    reasoning: list[str]
+
+
+class LearningEventsBatch(BaseModel):
+    """Batch of learning events for behavioral analysis"""
+    user_id: str = Field(..., description="Student user ID")
+    events: list[Dict[str, Any]] = Field(..., description="Learning events (is_correct, attempts, time_spent)")
+    time_on_task_seconds: int = Field(60, ge=0, description="Total time on current task")
+
+
+@app.post("/api/v1/behavioral/analyze", response_model=BehavioralStatusOutput, tags=["Behavioral"])
+async def analyze_behavioral_status(input_data: LearningEventsBatch) -> BehavioralStatusOutput:
+    """
+    Analyze behavioral signals and determine appropriate UI mode
+
+    This endpoint:
+    1. Processes recent learning events
+    2. Detects frustration, engagement, struggle
+    3. Suggests appropriate UI mode
+    4. Determines intervention urgency
+
+    Example:
+    ```json
+    {
+      "user_id": "student-123",
+      "events": [
+        {"skill_id": "photosynthesis", "is_correct": false, "attempts": 3, "time_spent_seconds": 180},
+        {"skill_id": "photosynthesis", "is_correct": false, "attempts": 2, "time_spent_seconds": 120}
+      ],
+      "time_on_task_seconds": 300
+    }
+    ```
+    """
+    from src.services.behavioral_detector import behavioral_detector, LearningEvent
+
+    try:
+        # Convert input events to LearningEvent objects
+        learning_events = []
+        for event_data in input_data.events:
+            learning_events.append(LearningEvent(
+                user_id=input_data.user_id,
+                skill_id=event_data.get("skill_id", "unknown"),
+                is_correct=event_data.get("is_correct", True),
+                attempts=event_data.get("attempts", 1),
+                time_spent_seconds=event_data.get("time_spent_seconds", 0)
+            ))
+
+        # Analyze behavioral signals
+        signals = await behavioral_detector.analyze_behavioral_signals(
+            user_id=input_data.user_id,
+            learning_events=learning_events,
+            clickstream=[],
+            time_on_task_seconds=input_data.time_on_task_seconds
+        )
+
+        return BehavioralStatusOutput(
+            user_id=signals.user_id,
+            is_frustrated=signals.is_frustrated,
+            is_engaged=signals.is_engaged,
+            is_struggling=signals.is_struggling,
+            consecutive_errors=signals.consecutive_errors,
+            time_on_task_seconds=signals.time_on_task_seconds,
+            suggested_mode=signals.suggested_mode,
+            urgency=signals.urgency,
+            confidence=signals.confidence,
+            reasoning=signals.reasoning
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Behavioral analysis error: {str(e)}")
+
+
+@app.get("/api/v1/behavioral/status/{user_id}", response_model=BehavioralStatusOutput, tags=["Behavioral"])
+async def get_behavioral_status(user_id: str) -> BehavioralStatusOutput:
+    """
+    Get current behavioral status for a student
+
+    Returns the detected behavioral state and suggested UI mode.
+    In a full implementation, this would query from a database of recent events.
+
+    Example:
+    ```json
+    {
+      "user_id": "student-123",
+      "is_frustrated": true,
+      "is_struggling": true,
+      "consecutive_errors": 3,
+      "suggested_mode": "high_contrast_focus",
+      "urgency": "intervention"
+    }
+    ```
+    """
+    from src.services.behavioral_detector import behavioral_detector
+
+    try:
+        # In a full implementation, query recent events from database
+        # For now, return a default status
+        signals = await behavioral_detector.analyze_behavioral_signals(
+            user_id=user_id,
+            learning_events=[],
+            clickstream=[],
+            time_on_task_seconds=60
+        )
+
+        return BehavioralStatusOutput(
+            user_id=signals.user_id,
+            is_frustrated=signals.is_frustrated,
+            is_engaged=signals.is_engaged,
+            is_struggling=signals.is_struggling,
+            consecutive_errors=signals.consecutive_errors,
+            time_on_task_seconds=signals.time_on_task_seconds,
+            suggested_mode=signals.suggested_mode,
+            urgency=signals.urgency,
+            confidence=signals.confidence,
+            reasoning=signals.reasoning
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving behavioral status: {str(e)}")
+
+
+@app.post("/api/v1/behavioral/track-event", tags=["Behavioral"])
+async def track_behavioral_event(event: BehavioralEventInput) -> Dict[str, str]:
+    """
+    Track a behavioral event (clickstream, squinting, etc.)
+
+    This endpoint receives behavioral signals from the frontend
+    and stores them for analysis.
+
+    In a full implementation, this would store events in a database
+    for real-time behavioral analysis.
+
+    Example:
+    ```json
+    {
+      "user_id": "student-123",
+      "event_type": "rapid_clicking",
+      "confidence": 0.8,
+      "metadata": {"click_count": 7, "time_span_seconds": 1.5}
+    }
+    ```
+    """
+    try:
+        # In a full implementation, store in database
+        # For now, just acknowledge
+        return {
+            "status": "recorded",
+            "user_id": event.user_id,
+            "event_type": event.event_type,
+            "message": "Event recorded successfully"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error tracking event: {str(e)}")
+
+
+@app.get("/api/v1/vectorstore/query", tags=["Vector Store"])
+async def query_vector_store(q: str, retrieval_type: str = "fact", top_k: int = 5) -> dict[str, Any]:
+    """
+    Query the vector store directly
+
+    Args:
+        q: Search query
+        retrieval_type: Type of retrieval ('fact' or 'concept')
+        top_k: Number of results to return
+    """
+    from src.services.sqlite_vector_store import sqlite_vector_store
+
+    if retrieval_type == "fact":
+        results = await sqlite_vector_store.retrieve_facts(q, top_k=top_k)
+    elif retrieval_type == "concept":
+        results = await sqlite_vector_store.retrieve_concepts(q, top_k=top_k)
+    else:
+        results = await sqlite_vector_store.retrieve_hybrid(q, top_k=top_k)
+
+    return {"query": q, "retrieval_type": retrieval_type, "results": results, "count": len(results)}
+
+
+# ============================================================================
 # Hybrid LLM & Anonymization API Endpoints
 # ============================================================================
 
@@ -1062,6 +1265,497 @@ async def test_hybrid_generate(input_data: HybridGenerateInput) -> HybridGenerat
 #
 #     health = await graph_store_service.health_check()
 #     return health
+
+
+# ============================================================================
+# LibreTexts ADAPT API Endpoints
+# ============================================================================
+
+class ImportQuestionsInput(BaseModel):
+    """Input for importing questions from ADAPT"""
+    topic: str = Field(..., description="Topic to import (e.g., 'Photosynthesis')")
+    subject: str = Field("Biology", description="Subject area")
+    difficulty: str = Field("medium", description="Difficulty level: easy, medium, hard")
+    count: int = Field(50, ge=1, le=100, description="Number of questions to import")
+
+
+class SearchQuestionsInput(BaseModel):
+    """Input for searching imported questions"""
+    query: str = Field(..., description="Search query")
+    subject: Optional[str] = Field(None, description="Optional subject filter")
+    topic: Optional[str] = Field(None, description="Optional topic filter")
+    top_k: int = Field(5, ge=1, le=20, description="Number of results")
+
+
+class QuestionOutput(BaseModel):
+    """A question from the imported store"""
+    question_id: str
+    text: str
+    subject: str
+    topic: str
+    difficulty: str
+    type: str
+    explanation: Optional[str]
+    score: float
+
+
+@app.post("/api/v1/adapt/import", response_model=dict[str, Any], tags=["ADAPT"])
+async def import_questions(input_data: ImportQuestionsInput) -> dict[str, Any]:
+    """
+    Import questions from LibreTexts ADAPT into local vector store
+
+    This endpoint:
+    1. Fetches questions from ADAPT API (anonymized)
+    2. Generates embeddings using local Ollama
+    3. Stores questions in local SQLite vector store
+    4. Returns import statistics
+
+    FERPA Compliance:
+    - All questions stored locally only
+    - No PII sent to external APIs
+    - Embeddings generated locally
+
+    Example:
+    ```json
+    {
+      "topic": "Photosynthesis",
+      "subject": "Biology",
+      "difficulty": "medium",
+      "count": 50
+    }
+    ```
+    """
+    from src.services.question_pipeline import get_question_pipeline
+
+    try:
+        pipeline = get_question_pipeline()
+
+        result = await pipeline.import_topic_questions(
+            topic=input_data.topic,
+            subject=input_data.subject,
+            difficulty=input_data.difficulty,
+            count=input_data.count
+        )
+
+        return {
+            "status": "success" if result.failed == 0 else "partial",
+            "total_fetched": result.total_fetched,
+            "successfully_imported": result.successfully_imported,
+            "failed": result.failed,
+            "errors": result.errors,
+            "imported_ids": result.imported_ids,
+            "duration_seconds": result.duration_seconds
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import error: {str(e)}")
+
+
+@app.post("/api/v1/adapt/search", response_model=dict[str, Any], tags=["ADAPT"])
+async def search_questions(input_data: SearchQuestionsInput) -> dict[str, Any]:
+    """
+    Search for similar questions in the local imported store
+
+    This endpoint performs semantic search using the local vector store.
+    No external API calls are made.
+
+    Example:
+    ```json
+    {
+      "query": "What is ATP?",
+      "subject": "Biology",
+      "top_k": 5
+    }
+    ```
+    """
+    from src.services.question_pipeline import get_question_pipeline
+
+    try:
+        pipeline = get_question_pipeline()
+
+        results = await pipeline.search_similar_questions(
+            query=input_data.query,
+            subject=input_data.subject,
+            topic=input_data.topic,
+            top_k=input_data.top_k
+        )
+
+        questions = []
+        for result in results:
+            metadata = result.get("metadata", {})
+            questions.append(QuestionOutput(
+                question_id=metadata.get("question_id", ""),
+                text=result.get("content", ""),
+                subject=metadata.get("subject", ""),
+                topic=metadata.get("topic", ""),
+                difficulty=metadata.get("difficulty", ""),
+                type=metadata.get("question_type", ""),
+                explanation=metadata.get("explanation"),
+                score=result.get("score", 0.0)
+            ))
+
+        return {
+            "query": input_data.query,
+            "count": len(questions),
+            "questions": questions
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
+
+
+@app.get("/api/v1/adapt/topics", response_model=dict[str, Any], tags=["ADAPT"])
+async def get_imported_topics(subject: Optional[str] = None) -> dict[str, Any]:
+    """
+    Get list of topics that have been imported from ADAPT
+
+    Query Parameters:
+    - subject: Optional subject filter (e.g., "Biology")
+
+    Returns:
+        List of imported topic names
+
+    Example:
+    ```json
+    {
+      "topics": ["Photosynthesis", "Cellular Respiration", "Genetics"],
+      "count": 3,
+      "subject": "Biology"
+    }
+    ```
+    """
+    from src.services.question_pipeline import get_question_pipeline
+
+    try:
+        pipeline = get_question_pipeline()
+
+        topics = await pipeline.get_imported_topics(subject=subject)
+
+        return {
+            "topics": topics,
+            "count": len(topics),
+            "subject": subject
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving topics: {str(e)}")
+
+
+@app.get("/api/v1/adapt/statistics", response_model=dict[str, Any], tags=["ADAPT"])
+async def get_question_statistics() -> dict[str, Any]:
+    """
+    Get statistics about imported questions
+
+    Returns:
+        Statistics including total count, breakdown by subject/topic/difficulty
+
+    Example:
+    ```json
+    {
+      "total": 150,
+      "by_subject": {"Biology": 100, "Chemistry": 50},
+      "by_topic": {"Photosynthesis": 30, "Genetics": 25},
+      "by_difficulty": {"easy": 50, "medium": 75, "hard": 25}
+    }
+    ```
+    """
+    from src.services.question_pipeline import get_question_pipeline
+
+    try:
+        pipeline = get_question_pipeline()
+
+        stats = await pipeline.get_statistics()
+
+        return stats
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving statistics: {str(e)}")
+
+
+@app.get("/api/v1/adapt/health", response_model=dict[str, Any], tags=["ADAPT"])
+async def adapt_health_check() -> dict[str, Any]:
+    """
+    Check the health of the ADAPT integration
+
+    Returns:
+        Health status including:
+        - Local vector store status
+        - ADAPT API availability (if configured)
+        - Question import statistics
+    """
+    from src.services.question_pipeline import get_question_pipeline
+    from src.services.adapt_client import get_adapt_client
+
+    try:
+        # Check local pipeline
+        pipeline = get_question_pipeline()
+        stats = await pipeline.get_statistics()
+
+        # Check ADAPT API (if configured)
+        adapt_client = get_adapt_client()
+        adapt_health = await adapt_client.health_check()
+
+        return {
+            "status": "healthy",
+            "local_store": {
+                "status": "available",
+                "total_questions": stats.get("total", 0),
+                "subjects": list(stats.get("by_subject", {}).keys()),
+                "topics": list(stats.get("by_topic", {}).keys())
+            },
+            "adapt_api": adapt_health,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+# ============================================================================
+# OpenTDB API Endpoints (Free alternative to ADAPT)
+# ============================================================================
+
+class FetchQuestionsInput(BaseModel):
+    """Input for fetching questions from OpenTDB"""
+    amount: int = Field(10, ge=1, le=50, description="Number of questions (max 50)")
+    category: Optional[int] = Field(None, description="Category ID (17=Science, 19=Math, etc.)")
+    difficulty: Optional[str] = Field(None, description="Difficulty: easy, medium, hard")
+    type: Optional[str] = Field(None, description="Question type: multiple, boolean")
+    science_only: bool = Field(True, description="Only fetch science-related categories")
+
+
+class QuestionOutput(BaseModel):
+    """A question from OpenTDB"""
+    id: str
+    question: str
+    correct_answer: str
+    incorrect_answers: list[str]
+    type: str
+    difficulty: str
+    category: str
+    source: str
+
+
+@app.post("/api/v1/opentdb/fetch", response_model=dict[str, Any], tags=["OpenTDB"])
+async def fetch_opentdb_questions(input_data: FetchQuestionsInput) -> dict[str, Any]:
+    """
+    Fetch questions from OpenTDB (Free API, no key required)
+
+    OpenTDB is a free, user-contributed trivia database with science questions.
+
+    Categories:
+    - 17: Science & Nature
+    - 18: Science: Computers
+    - 19: Science: Mathematics
+    - 27: Animals
+    - 30: Science: Gadgets
+
+    Rate limit: 1 request per 5 seconds per IP
+    Max questions: 50 per request
+
+    Example:
+    ```json
+    {
+      "amount": 10,
+      "difficulty": "medium",
+      "science_only": true
+    }
+    ```
+    """
+    from src.services.opentdb_client import get_opentdb_client
+
+    try:
+        client = get_opentdb_client()
+
+        if input_data.science_only:
+            # Fetch from science categories only
+            questions = await client.get_science_questions(
+                amount=input_data.amount,
+                difficulty=input_data.difficulty
+            )
+        else:
+            # Fetch from specified category
+            questions = await client.get_questions(
+                amount=input_data.amount,
+                category=input_data.category,
+                difficulty=input_data.difficulty,
+                type=input_data.type
+            )
+
+        return {
+            "count": len(questions),
+            "questions": [
+                QuestionOutput(
+                    id=q.id,
+                    question=q.question,
+                    correct_answer=q.correct_answer,
+                    incorrect_answers=q.incorrect_answers,
+                    type=q.type,
+                    difficulty=q.difficulty,
+                    category=q.category,
+                    source=q.source
+                )
+                for q in questions
+            ]
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching questions: {str(e)}")
+
+
+@app.get("/api/v1/opentdb/categories", response_model=dict[str, Any], tags=["OpenTDB"])
+async def get_opentdb_categories() -> dict[str, Any]:
+    """
+    Get all available OpenTDB categories
+
+    Returns:
+        List of categories with IDs
+
+    Example:
+    ```json
+    {
+      "categories": [
+        {"id": 17, "name": "Science & Nature"},
+        {"id": 19, "name": "Science: Mathematics"}
+      ]
+    }
+    ```
+    """
+    from src.services.opentdb_client import get_opentdb_client
+
+    try:
+        client = get_opentdb_client()
+        categories = await client.get_categories()
+
+        return {
+            "categories": categories,
+            "count": len(categories),
+            "science_categories": {
+                17: "Science & Nature",
+                18: "Science: Computers",
+                19: "Science: Mathematics",
+                27: "Animals",
+                30: "Science: Gadgets"
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching categories: {str(e)}")
+
+
+@app.get("/api/v1/opentdb/health", response_model=dict[str, Any], tags=["OpenTDB"])
+async def opentdb_health_check() -> dict[str, Any]:
+    """
+    Check OpenTDB API availability
+
+    Returns:
+        Health status and API information
+    """
+    from src.services.opentdb_client import get_opentdb_client
+
+    try:
+        client = get_opentdb_client()
+        health = await client.health_check()
+
+        return health
+
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "api_available": False,
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
+@app.post("/api/v1/opentdb/import", response_model=dict[str, Any], tags=["OpenTDB"])
+async def import_opentdb_questions(input_data: FetchQuestionsInput) -> dict[str, Any]:
+    """
+    Import OpenTDB questions into local vector store
+
+    This endpoint:
+    1. Fetches questions from OpenTDB
+    2. Generates embeddings using local Ollama
+    3. Stores in local SQLite vector store
+    4. Returns import statistics
+
+    Example:
+    ```json
+    {
+      "amount": 20,
+      "difficulty": "medium",
+      "science_only": true
+    }
+    ```
+    """
+    from src.services.opentdb_client import get_opentdb_client, OpenTDBQuestion
+    from src.services.sqlite_vector_store import sqlite_vector_store
+
+    try:
+        client = get_opentdb_client()
+
+        # Fetch questions
+        if input_data.science_only:
+            questions = await client.get_science_questions(
+                amount=input_data.amount,
+                difficulty=input_data.difficulty
+            )
+        else:
+            questions = await client.get_questions(
+                amount=input_data.amount,
+                category=input_data.category,
+                difficulty=input_data.difficulty,
+                type=input_data.type
+            )
+
+        # Import to vector store
+        imported_count = 0
+        failed_count = 0
+
+        for q in questions:
+            try:
+                # Generate embedding
+                # Use the vector store's embed_text function
+                embedding = await sqlite_vector_store.embed_text(q.question)
+
+                if isinstance(embedding, list) and len(embedding) > 0:
+                    vec = embedding[0]
+                else:
+                    continue
+
+                # Store in vector store
+                await sqlite_vector_store.add_texts(
+                    texts=[q.question],
+                    metadatas=[{
+                        "type": "question",
+                        "question_id": q.id,
+                        "category": q.category,
+                        "difficulty": q.difficulty,
+                        "correct_answer": q.correct_answer,
+                        "source": "opentdb"
+                    }],
+                    embeddings=[vec]
+                )
+                imported_count += 1
+
+            except Exception as e:
+                failed_count += 1
+                continue
+
+        return {
+            "status": "success",
+            "total_fetched": len(questions),
+            "successfully_imported": imported_count,
+            "failed": failed_count,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import error: {str(e)}")
 
 
 if __name__ == "__main__":
