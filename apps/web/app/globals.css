@@ -1,0 +1,245 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===================================
+   Mu2 Cognitive OS - Global Styles
+   =================================== */
+
+@layer base {
+  :root {
+    /* Standard Mode Variables */
+    --bg-primary: #0A0A0A;
+    --text-primary: #E5E5E5;
+    --text-secondary: #737373;
+    --accent: #3B82F6;
+    --border: #262626;
+
+    /* Focus Mode Variables */
+    --focus-bg: #000000;
+    --focus-text: #FFFFFF;
+    --focus-accent: #FFFF00;
+    --focus-border: #FFFFFF;
+  }
+
+  /* Focus Mode Override */
+  [data-mode="focus"] {
+    --bg-primary: var(--focus-bg);
+    --text-primary: var(--focus-text);
+    --text-secondary: #CCCCCC;
+    --accent: var(--focus-accent);
+    --border: var(--focus-border);
+  }
+
+  * {
+    @apply border-[color:var(--border)];
+  }
+
+  body {
+    @apply bg-[color:var(--bg-primary)] text-[color:var(--text-primary)];
+    font-feature-settings: "rlig" 1, "calt" 1;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  /* WCAG 2.1 AA - Focus Visible */
+  *:focus-visible {
+    @apply outline-2 outline-offset-2;
+    outline-color: var(--accent);
+  }
+
+  /* Reduced Motion */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* High Contrast Mode Support */
+  @media (prefers-contrast: high) {
+    :root {
+      --bg-primary: #000000;
+      --text-primary: #FFFFFF;
+      --border: #FFFFFF;
+      --accent: #FFFF00;
+    }
+  }
+}
+
+@layer components {
+  /* Focus Mode Typography */
+  [data-mode="focus"] body {
+    font-size: 1.125rem;
+    line-height: 1.75;
+    letter-spacing: 0.01em;
+  }
+
+  [data-mode="focus"] h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  [data-mode="focus"] h2 {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  [data-mode="focus"] p {
+    max-width: 70ch;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+/* ===================================
+   Screen Reader Only (WCAG 2.1)
+   =================================== */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Skip Link (WCAG 2.1) */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--accent);
+  color: var(--bg-primary);
+  padding: 8px 16px;
+  z-index: 100;
+  transition: top 0.3s;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* ===================================
+   Split-View UI Styles
+   =================================== */
+
+/* Custom scrollbar for textbook and chat panes */
+.split-pane::-webkit-scrollbar {
+  width: 8px;
+}
+
+.split-pane::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.split-pane::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.split-pane::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* Textbook academic styling */
+.textbook-content {
+  font-family: Georgia, 'Times New Roman', serif;
+  line-height: 1.8;
+  text-align: justify;
+  hyphens: auto;
+}
+
+.textbook-content p {
+  text-indent: 2em;
+  margin-bottom: 1em;
+}
+
+.textbook-content p:first-of-type {
+  text-indent: 0;
+}
+
+.textbook-content p:first-of-type::first-letter {
+  font-size: 3em;
+  font-weight: bold;
+  float: left;
+  line-height: 1;
+  margin-right: 0.1em;
+  color: var(--accent);
+}
+
+/* Highlight animation for citations */
+@keyframes highlight-pulse {
+  0%, 100% {
+    background-color: var(--accent);
+    opacity: 0.2;
+  }
+  50% {
+    background-color: var(--accent);
+    opacity: 0.4;
+  }
+}
+
+.highlighted-paragraph {
+  animation: highlight-pulse 1s ease-in-out;
+  border-radius: 4px;
+  padding: 0.5rem;
+  margin: -0.5rem;
+}
+
+/* Chat message animations */
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.chat-message-user {
+  animation: slide-in-right 0.3s ease-out;
+}
+
+.chat-message-assistant {
+  animation: slide-in-left 0.3s ease-out;
+}
+
+/* Focus pane indicator */
+.pane-active {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* Paper texture effect for textbook */
+.paper-texture {
+  background-image: url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+}
+
+/* Respect prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .highlighted-paragraph,
+  .chat-message-user,
+  .chat-message-assistant {
+    animation: none;
+  }
+}
