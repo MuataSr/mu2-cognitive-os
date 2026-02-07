@@ -52,3 +52,8 @@ docker-volumes/
 *.swp
 *.swo
 *~
+
+# Mu2 Specific
+venv/
+audit-reports/
+mu2-usb/
