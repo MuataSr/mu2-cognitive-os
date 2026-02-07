@@ -5,9 +5,10 @@ import { getRecentEvents, formatLastActive, type LiveFeedEvent } from "@/lib/api
 
 /**
  * LiveFeedSidebar - Vertical timeline of recent learning events
+ * Kut Different Branding
  *
- * Displays the most recent learning events across all students.
- * Shows robot icon for agent actions and user icon for student actions.
+ * Displays the most recent learning events across all scholars.
+ * Shows robot icon for agent actions and user icon for scholar actions.
  * Auto-refreshes every 5 seconds.
  */
 
@@ -54,16 +55,16 @@ export function LiveFeedSidebar({
   const hiddenCount = Math.max(0, events.length - maxVisible);
 
   return (
-    <div className="bg-[color:var(--bg-secondary)] rounded-lg p-4 h-fit sticky top-6">
+    <div className="kd-card p-4 h-fit sticky top-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">Live Feed</h2>
+        <h2 className="kd-title text-lg">Live Feed</h2>
         <div className="flex items-center gap-2">
           <div
-            className={`w-2 h-2 rounded-full ${loading ? "bg-yellow-500 animate-pulse" : "bg-green-500"}`}
+            className={`kd-pulse-dot ${loading ? "bg-yellow-500 animate-pulse" : "kd-pulse-active"}`}
             aria-label={loading ? "Loading" : "Live"}
           />
-          <span className="text-xs text-[color:var(--text-secondary)]">
+          <span className="text-xs text-[color:var(--kd-text-muted)]">
             {lastUpdate.toLocaleTimeString()}
           </span>
         </div>
@@ -71,7 +72,7 @@ export function LiveFeedSidebar({
 
       {/* Error State */}
       {error && (
-        <div className="bg-red-500/10 border border-red-500 rounded p-3 mb-4">
+        <div className="bg-red-500/10 border border-red-500 rounded-kd p-3 mb-4">
           <p className="text-red-500 text-sm">{error}</p>
         </div>
       )}
@@ -79,15 +80,15 @@ export function LiveFeedSidebar({
       {/* Loading State */}
       {loading && events.length === 0 && (
         <div className="text-center py-8">
-          <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-[color:var(--accent)]"></div>
-          <p className="mt-2 text-sm text-[color:var(--text-secondary)]">Loading events...</p>
+          <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-[color:var(--kd-red)]"></div>
+          <p className="mt-2 text-sm text-[color:var(--kd-text-muted)]">Loading events...</p>
         </div>
       )}
 
       {/* Empty State */}
       {!loading && events.length === 0 && (
         <div className="text-center py-8">
-          <p className="text-[color:var(--text-secondary)]">No recent events</p>
+          <p className="text-[color:var(--kd-text-muted)]">No recent events</p>
         </div>
       )}
 
@@ -96,14 +97,14 @@ export function LiveFeedSidebar({
         {visibleEvents.map((event, index) => (
           <div
             key={`${event.user_id}-${event.timestamp}-${index}`}
-            className="flex items-start gap-3 p-2 rounded bg-[color:var(--bg-primary)] hover:bg-[color:var(--border)] transition-colors"
+            className="flex items-start gap-3 p-2 rounded-kd bg-[color:var(--kd-black)] hover:bg-[color:var(--kd-slate)] transition-colors"
           >
             {/* Icon */}
             <div className="flex-shrink-0 mt-0.5">
               {event.event_type === "AGENT_ACTION" ? (
                 // Robot icon for agent actions
                 <svg
-                  className="w-4 h-4 text-[color:var(--accent)]"
+                  className="w-4 h-4 text-[color:var(--kd-red)]"
                   fill="currentColor"
                   viewBox="0 0 20 20"
                   aria-label="Agent action"
@@ -115,12 +116,12 @@ export function LiveFeedSidebar({
                   />
                 </svg>
               ) : (
-                // User/hand icon for student actions
+                // User/hand icon for scholar actions
                 <svg
                   className="w-4 h-4 text-blue-400"
                   fill="currentColor"
                   viewBox="0 0 20 20"
-                  aria-label="Student action"
+                  aria-label="Scholar action"
                 >
                   <path
                     fillRule="evenodd"
@@ -136,7 +137,7 @@ export function LiveFeedSidebar({
               <p className="text-sm font-medium truncate">
                 {event.source_text || "Learning activity"}
               </p>
-              <p className="text-xs text-[color:var(--text-secondary)]">
+              <p className="text-xs text-[color:var(--kd-text-muted)]">
                 {event.user_id} • {formatLastActive(event.timestamp)}
               </p>
             </div>
@@ -147,7 +148,7 @@ export function LiveFeedSidebar({
       {/* Hidden Count */}
       {hiddenCount > 0 && (
         <div className="mt-4 text-center">
-          <p className="text-sm text-[color:var(--text-secondary)]">
+          <p className="text-sm text-[color:var(--kd-text-muted)]">
             +{hiddenCount} more events
           </p>
         </div>

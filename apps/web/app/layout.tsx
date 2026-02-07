@@ -1,23 +1,29 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Montserrat } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 import { ModeProvider } from "@/components/providers/mode-provider";
 import { FocusModeToggle } from "@/components/focus-mode-toggle";
 import { KeyboardShortcutsButton } from "@/components/keyboard-shortcuts";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Kut Different Fonts: Montserrat (headings) and Inter (body)
+const montserrat = Montserrat({
+  variable: "--font-montserrat",
   subsets: ["latin"],
+  weight: ["700", "800", "900"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+  weight: ["300", "400", "600"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Mu2 Cognitive OS",
-  description: "Adaptive Learning Platform with Focus Mode",
+  title: "Kut Different - Mu2 Cognitive OS",
+  description: "Mu2 Cognitive OS: Guiding young men to own their greatness through local, adaptive intelligence.",
 };
 
 export default function RootLayout({
@@ -27,7 +33,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body className={`${montserrat.variable} ${inter.variable} antialiased`}>
         <ModeProvider>
           <a href="#main-content" className="skip-link">
             Skip to main content

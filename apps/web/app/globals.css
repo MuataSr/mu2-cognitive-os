@@ -3,19 +3,34 @@
 @tailwind utilities;
 
 /* ===================================
-   Mu2 Cognitive OS - Global Styles
+   Kut Different - Mu2 Cognitive OS
+   Global Styles & Diamond Kut Branding
    =================================== */
 
 @layer base {
   :root {
-    /* Standard Mode Variables */
-    --bg-primary: #0A0A0A;
-    --text-primary: #E5E5E5;
-    --text-secondary: #737373;
-    --accent: #3B82F6;
-    --border: #262626;
+    /* Kut Different Signature Palette */
+    --kd-red: #E62121;
+    --kd-red-glow: rgba(230, 33, 33, 0.4);
+    --kd-black: #0F0F0F;
+    --kd-dark-grey: #1A1A1A;
+    --kd-slate: #2A2A2A;
+    --kd-white: #FFFFFF;
+    --kd-text-muted: #A0A0A0;
 
-    /* Focus Mode Variables */
+    --radius-kd: 4px; /* Sharper "Diamond Kut" corners */
+    --glass: rgba(255, 255, 255, 0.03);
+    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* Legacy variable mappings for compatibility */
+    --bg-primary: var(--kd-black);
+    --bg-secondary: var(--kd-dark-grey);
+    --text-primary: var(--kd-white);
+    --text-secondary: var(--kd-text-muted);
+    --border: var(--kd-slate);
+    --accent: var(--kd-red);
+
+    /* Focus Mode Variables (High Contrast) */
     --focus-bg: #000000;
     --focus-text: #FFFFFF;
     --focus-accent: #FFFF00;
@@ -36,9 +51,20 @@
   }
 
   body {
-    @apply bg-[color:var(--bg-primary)] text-[color:var(--text-primary)];
+    @apply bg-[color:var(--kd-black)] text-[color:var(--kd-white)];
+    font-family: var(--font-inter), system-ui, sans-serif;
+    /* Urban grid texture background */
+    background-image: radial-gradient(circle at 2px 2px, rgba(255,255,255,0.05) 1px, transparent 0);
+    background-size: 40px 40px;
     font-feature-settings: "rlig" 1, "calt" 1;
     transition: background-color 0.3s ease, color 0.3s ease;
+  }
+
+  /* Kut Different Typography */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-montserrat), sans-serif;
+    text-transform: uppercase;
+    letter-spacing: -0.5px;
   }
 
   /* WCAG 2.1 AA - Focus Visible */
@@ -94,6 +120,97 @@
     margin-left: auto;
     margin-right: auto;
   }
+
+  /* ===================================
+     Kut Different Utility Classes
+     =================================== */
+
+  .kd-title {
+    font-family: var(--font-montserrat), sans-serif;
+    text-transform: uppercase;
+    letter-spacing: -1px;
+    font-weight: 900;
+  }
+
+  .kd-btn {
+    background: var(--kd-red);
+    color: white;
+    border: none;
+    padding: 14px 28px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: var(--transition);
+    border-radius: var(--radius-kd);
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .kd-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 0 20px var(--kd-red-glow);
+  }
+
+  .kd-card {
+    background: var(--kd-dark-grey);
+    border: 1px solid var(--kd-slate);
+    border-radius: var(--radius-kd);
+    transition: var(--transition);
+  }
+
+  .kd-card:hover {
+    border-color: var(--kd-red);
+  }
+
+  .kd-input {
+    background: transparent;
+    border: 1px solid var(--kd-slate);
+    color: white;
+    padding: 10px;
+    transition: var(--transition);
+    border-radius: var(--radius-kd);
+  }
+
+  .kd-input:focus {
+    border-color: var(--kd-red);
+    outline: none;
+  }
+
+  /* Glass/blur panel effect */
+  .kd-glass {
+    background: rgba(42, 42, 42, 0.5);
+    backdrop-filter: blur(15px);
+    border: 1px solid var(--kd-red);
+  }
+
+  /* Pulse dot for active status */
+  .kd-pulse-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .kd-pulse-active {
+    background: #00FF88;
+    box-shadow: 0 0 10px #00FF88;
+  }
+
+  /* Red glow animation */
+  @keyframes kd-red-glow {
+    0%, 100% {
+      box-shadow: 0 0 5px var(--kd-red-glow);
+    }
+    50% {
+      box-shadow: 0 0 20px var(--kd-red-glow), 0 0 30px var(--kd-red-glow);
+    }
+  }
+
+  .kd-red-glow {
+    animation: kd-red-glow 2s ease-in-out infinite;
+  }
 }
 
 /* ===================================
@@ -121,6 +238,7 @@
   padding: 8px 16px;
   z-index: 100;
   transition: top 0.3s;
+  border-radius: var(--radius-kd);
 }
 
 .skip-link:focus {
@@ -239,7 +357,8 @@
 @media (prefers-reduced-motion: reduce) {
   .highlighted-paragraph,
   .chat-message-user,
-  .chat-message-assistant {
+  .chat-message-assistant,
+  .kd-red-glow {
     animation: none;
   }
 }

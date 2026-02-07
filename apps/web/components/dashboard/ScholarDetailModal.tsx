@@ -11,14 +11,14 @@ import {
 } from "@/lib/api/mastery";
 
 /**
- * StudentDetailModal - Modal showing detailed student information
+ * ScholarDetailModal - Modal showing detailed scholar information
  *
  * Displays two tabs:
  * - Skills: Current skill breakdown with mastery levels
  * - Citations: List of learning events with source text
  */
 
-interface StudentDetailModalProps {
+interface ScholarDetailModalProps {
   studentId: string;
   studentDetails: StudentSkillsOutput | null;
   onClose: () => void;
@@ -27,12 +27,12 @@ interface StudentDetailModalProps {
 
 type TabType = "skills" | "citations";
 
-export function StudentDetailModal({
+export function ScholarDetailModal({
   studentId,
   studentDetails,
   onClose,
   userRole,
-}: StudentDetailModalProps) {
+}: ScholarDetailModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>("skills");
 
   return (
@@ -41,15 +41,15 @@ export function StudentDetailModal({
       onClick={onClose}
     >
       <div
-        className="bg-[color:var(--bg-primary)] rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto"
+        className="kd-card p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto max-w-4xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold">{maskStudentId(studentId, userRole)}</h2>
+          <h2 className="kd-title text-2xl">{maskStudentId(studentId, userRole)}</h2>
           <button
             onClick={onClose}
-            className="text-[color:var(--text-secondary)] hover:text-[color:var(--text-primary)] transition-colors"
+            className="text-[color:var(--kd-text-muted)] hover:text-[color:var(--kd-white)] transition-colors"
             aria-label="Close details"
           >
             <svg
@@ -71,44 +71,44 @@ export function StudentDetailModal({
         {/* Loading Details */}
         {!studentDetails && (
           <div className="text-center py-8">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[color:var(--accent)]"></div>
-            <p className="mt-4 text-[color:var(--text-secondary)]">Loading details...</p>
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[color:var(--kd-red)]"></div>
+            <p className="mt-4 text-[color:var(--kd-text-muted)]">Loading details...</p>
           </div>
         )}
 
-        {/* Student Details */}
+        {/* Scholar Details */}
         {studentDetails && (
           <>
             {/* Summary */}
             <div className="grid grid-cols-3 gap-4 mb-6">
-              <div className="bg-[color:var(--bg-secondary)] rounded-lg p-4 text-center">
+              <div className="kd-card p-4 text-center">
                 <div className="text-3xl font-bold text-green-500">
                   {studentDetails.mastered_count}
                 </div>
-                <div className="text-sm text-[color:var(--text-secondary)]">Mastered</div>
+                <div className="text-sm text-[color:var(--kd-text-muted)]">Mastered</div>
               </div>
-              <div className="bg-[color:var(--bg-secondary)] rounded-lg p-4 text-center">
+              <div className="kd-card p-4 text-center">
                 <div className="text-3xl font-bold text-yellow-500">
                   {studentDetails.learning_count}
                 </div>
-                <div className="text-sm text-[color:var(--text-secondary)]">Learning</div>
+                <div className="text-sm text-[color:var(--kd-text-muted)]">Learning</div>
               </div>
-              <div className="bg-[color:var(--bg-secondary)] rounded-lg p-4 text-center">
-                <div className="text-3xl font-bold text-red-500">
+              <div className="kd-card p-4 text-center">
+                <div className="text-3xl font-bold text-[color:var(--kd-red)]">
                   {studentDetails.struggling_count}
                 </div>
-                <div className="text-sm text-[color:var(--text-secondary)]">Struggling</div>
+                <div className="text-sm text-[color:var(--kd-text-muted)]">Struggling</div>
               </div>
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-2 mb-4 border-b border-[color:var(--border)]">
+            <div className="flex gap-2 mb-4 border-b border-[color:var(--kd-slate)]">
               <button
                 onClick={() => setActiveTab("skills")}
                 className={`px-4 py-2 font-medium transition-colors ${
                   activeTab === "skills"
-                    ? "text-[color:var(--accent)] border-b-2 border-[color:var(--accent)]"
-                    : "text-[color:var(--text-secondary)] hover:text-[color:var(--text-primary)]"
+                    ? "text-[color:var(--kd-red)] border-b-2 border-[color:var(--kd-red)]"
+                    : "text-[color:var(--kd-text-muted)] hover:text-[color:var(--kd-white)]"
                 }`}
               >
                 Skills
@@ -117,22 +117,22 @@ export function StudentDetailModal({
                 onClick={() => setActiveTab("citations")}
                 className={`px-4 py-2 font-medium transition-colors ${
                   activeTab === "citations"
-                    ? "text-[color:var(--accent)] border-b-2 border-[color:var(--accent)]"
-                    : "text-[color:var(--text-secondary)] hover:text-[color:var(--text-primary)]"
+                    ? "text-[color:var(--kd-red)] border-b-2 border-[color:var(--kd-red)]"
+                    : "text-[color:var(--kd-text-muted)] hover:text-[color:var(--kd-white)]"
                 }`}
               >
-                Citations
+                Learning Events
               </button>
             </div>
 
             {/* Skills Tab */}
             {activeTab === "skills" && (
               <div className="space-y-3">
-                <h3 className="text-lg font-semibold mb-4">Skill Breakdown</h3>
+                <h3 className="kd-title text-lg mb-4">Skill Breakdown</h3>
                 {studentDetails.skills.map((skill) => (
                   <div
                     key={skill.skill_id}
-                    className="bg-[color:var(--bg-secondary)] rounded-lg p-4"
+                    className="kd-card p-4"
                   >
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
@@ -141,19 +141,19 @@ export function StudentDetailModal({
                         />
                         <span className="font-medium">{skill.skill_name}</span>
                       </div>
-                      <span className="text-sm font-semibold">
+                      <span className="text-sm font-semibold text-[color:var(--kd-red)]">
                         {formatMasteryPercentage(skill.probability_mastery)}
                       </span>
                     </div>
 
                     {/* Progress Bar */}
-                    <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
+                    <div className="w-full bg-[color:var(--kd-slate)] rounded-full h-2 mb-2">
                       <div
                         className={`h-2 rounded-full transition-all duration-500 ${
                           skill.status.status === "MASTERED"
                             ? "bg-green-500"
                             : skill.status.status === "STRUGGLING"
-                            ? "bg-red-500"
+                            ? "bg-[color:var(--kd-red)]"
                             : "bg-yellow-500"
                         }`}
                         style={{ width: formatMasteryPercentage(skill.probability_mastery) }}
@@ -161,7 +161,7 @@ export function StudentDetailModal({
                     </div>
 
                     {/* Stats */}
-                    <div className="flex items-center justify-between text-sm text-[color:var(--text-secondary)]">
+                    <div className="flex items-center justify-between text-sm text-[color:var(--kd-text-muted)]">
                       <span>
                         {skill.correct_attempts}/{skill.total_attempts} correct
                       </span>
@@ -175,29 +175,29 @@ export function StudentDetailModal({
             {/* Citations Tab */}
             {activeTab === "citations" && (
               <div className="space-y-3">
-                <h3 className="text-lg font-semibold mb-4">Learning Events</h3>
+                <h3 className="kd-title text-lg mb-4">Learning Events</h3>
                 {studentDetails.recent_events.length === 0 ? (
-                  <p className="text-[color:var(--text-secondary)] text-center py-8">
+                  <p className="text-[color:var(--kd-text-muted)] text-center py-8">
                     No recent events available
                   </p>
                 ) : (
                   studentDetails.recent_events.map((event, index) => (
                     <div
                       key={`${event.timestamp}-${index}`}
-                      className="bg-[color:var(--bg-secondary)] rounded-lg p-4"
+                      className="kd-card p-4"
                     >
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex-1">
                           {event.source_text && (
                             <p className="font-medium mb-1">{event.source_text}</p>
                           )}
-                          <div className="flex items-center gap-3 text-sm text-[color:var(--text-secondary)]">
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded ${
+                          <div className="flex items-center gap-3 text-sm text-[color:var(--kd-text-muted)]">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-kd ${
                               event.event_type === "AGENT_ACTION"
-                                ? "bg-[color:var(--accent)]/20 text-[color:var(--accent)]"
+                                ? "bg-[color:var(--kd-red)]/20 text-[color:var(--kd-red)]"
                                 : "bg-blue-500/20 text-blue-400"
                             }`}>
-                              {event.event_type === "AGENT_ACTION" ? "🤖 Agent" : "👤 Student"}
+                              {event.event_type === "AGENT_ACTION" ? "🤖 Agent" : "👤 Scholar"}
                             </span>
                             <span>{formatLastActive(event.timestamp)}</span>
                           </div>
@@ -206,8 +206,8 @@ export function StudentDetailModal({
 
                       {/* Metadata */}
                       {Object.keys(event.metadata).length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-[color:var(--border)]">
-                          <p className="text-xs text-[color:var(--text-secondary)]">
+                        <div className="mt-2 pt-2 border-t border-[color:var(--kd-slate)]">
+                          <p className="text-xs text-[color:var(--kd-text-muted)]">
                             Metadata: {JSON.stringify(event.metadata)}
                           </p>
                         </div>

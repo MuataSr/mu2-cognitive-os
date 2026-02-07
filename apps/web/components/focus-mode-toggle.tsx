@@ -4,7 +4,7 @@ import { useMode } from "./providers/mode-provider";
 import { Sun, Moon } from "lucide-react";
 
 /**
- * Focus Mode Toggle Component
+ * Focus Mode Toggle Component - Kut Different Branding
  *
  * WCAG 2.1 AA Compliance:
  * - aria-live="polite" announces mode changes to screen readers
@@ -22,7 +22,7 @@ export function FocusModeToggle() {
       onClick={toggleMode}
       aria-pressed={isFocus}
       aria-label={`Switch to ${isFocus ? "Standard" : "Focus"} mode`}
-      className="fixed top-4 right-4 p-3 rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-primary)] hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-[color:var(--accent)] transition-opacity z-50"
+      className="kd-card fixed top-4 right-4 p-3 hover:border-[color:var(--kd-red)] focus:outline-none focus:ring-2 focus:ring-[color:var(--kd-red)] transition-all z-50"
       aria-live="polite"
       aria-atomic="true"
     >
@@ -32,7 +32,7 @@ export function FocusModeToggle() {
       {isFocus ? (
         <Sun className="w-5 h-5 text-[color:var(--focus-accent)]" aria-hidden="true" />
       ) : (
-        <Moon className="w-5 h-5 text-[color:var(--standard-accent)]" aria-hidden="true" />
+        <Moon className="w-5 h-5 text-[color:var(--kd-red)]" aria-hidden="true" />
       )}
     </button>
   );

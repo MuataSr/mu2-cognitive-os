@@ -9,24 +9,24 @@ import {
   type StudentSkillsOutput,
   type ClassOverviewOutput,
 } from "@/lib/api/mastery";
-import { ClassPulseBar } from "@/components/dashboard/ClassPulseBar";
-import { StudentGrid } from "@/components/dashboard/StudentGrid";
+import { MasteryStatsBar } from "@/components/dashboard/MasteryStatsBar";
+import { ScholarGrid } from "@/components/dashboard/ScholarGrid";
 import { LiveFeedSidebar } from "@/components/dashboard/LiveFeedSidebar";
-import { StudentDetailModal } from "@/components/dashboard/StudentDetailModal";
+import { ScholarDetailModal } from "@/components/dashboard/ScholarDetailModal";
 
 /**
- * Teacher Command Center - Real-Time Monitoring Dashboard
+ * Mentor Command Center - Real-Time Monitoring Dashboard
  *
- * "Air Traffic Control" view for real-time student mastery tracking
- * - ClassPulseBar: Horizontal stacked bar showing class status distribution
- * - StudentGrid: Filterable grid of student cards
+ * "Air Traffic Control" view for real-time scholar mastery tracking
+ * - MasteryStatsBar: Horizontal stacked bar showing class status distribution
+ * - ScholarGrid: Filterable grid of scholar cards
  * - LiveFeedSidebar: Real-time event timeline
  * - FERPA-compliant data masking
  */
 
 type FilterType = "all" | "ready" | "distracted" | "intervention";
 
-export default function TeacherDashboard() {
+export default function MentorDashboard() {
   const [students, setStudents] = useState<StudentCardOutput[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<string | null>(null);
   const [studentDetails, setStudentDetails] = useState<StudentSkillsOutput | null>(null);
@@ -57,8 +57,8 @@ export default function TeacherDashboard() {
 
       setLastUpdate(new Date());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load students");
-      console.error("Error fetching students:", err);
+      setError(err instanceof Error ? err.message : "Failed to load scholars");
+      console.error("Error fetching scholars:", err);
     } finally {
       setLoading(false);
     }
@@ -70,7 +70,7 @@ export default function TeacherDashboard() {
       const data: StudentSkillsOutput = await getStudentMastery(userId);
       setStudentDetails(data);
     } catch (err) {
-      console.error("Error fetching student details:", err);
+      console.error("Error fetching scholar details:", err);
     }
   }, []);
 
@@ -114,19 +114,19 @@ export default function TeacherDashboard() {
   const displayIntervention = countIntervention || calculatedStats.intervention;
 
   return (
-    <div className="min-h-screen bg-[color:var(--bg-primary)] p-6">
+    <div className="min-h-screen bg-[color:var(--kd-black)] p-6">
       {/* Header */}
       <header className="mb-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold mb-1">Teacher Command Center</h1>
-            <p className="text-[color:var(--text-secondary)]">
+            <h1 className="kd-title text-3xl mb-1">Mentor Command Center</h1>
+            <p className="text-[color:var(--kd-text-muted)]">
               Real-Time Monitoring Dashboard
             </p>
           </div>
           <Link
             href="/"
-            className="px-4 py-2 rounded-lg bg-[color:var(--accent)] text-[color:var(--bg-primary)] hover:opacity-90 transition-opacity"
+            className="kd-btn"
             aria-label="Return to home"
           >
             Back to Home
@@ -134,8 +134,8 @@ export default function TeacherDashboard() {
         </div>
       </header>
 
-      {/* ClassPulseBar */}
-      <ClassPulseBar
+      {/* MasteryStatsBar */}
+      <MasteryStatsBar
         countReady={displayReady}
         countDistracted={displayDistracted}
         countIntervention={displayIntervention}
@@ -145,12 +145,12 @@ export default function TeacherDashboard() {
 
       {/* Main Layout: Grid + Sidebar */}
       <div className="flex gap-6">
-        {/* Student Grid (Main Area) */}
+        {/* Scholar Grid (Main Area) */}
         <div className="flex-1">
           {/* Status Bar */}
           <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-6 text-sm text-[color:var(--text-secondary)]">
-              <span>Showing: {filter === "all" ? "All Students" : filter.charAt(0).toUpperCase() + filter.slice(1)}</span>
+            <div className="flex items-center gap-6 text-sm text-[color:var(--kd-text-muted)]">
+              <span>Showing: {filter === "all" ? "All Scholars" : filter.charAt(0).toUpperCase() + filter.slice(1)}</span>
               <span>Total: {students.length}</span>
               <span>Last updated: {lastUpdate.toLocaleTimeString()}</span>
             </div>
@@ -159,21 +159,21 @@ export default function TeacherDashboard() {
           {/* Loading State */}
           {loading && (
             <div className="text-center py-12">
-              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[color:var(--accent)]"></div>
-              <p className="mt-4 text-[color:var(--text-secondary)]">Loading students...</p>
+              <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[color:var(--kd-red)]"></div>
+              <p className="mt-4 text-[color:var(--kd-text-muted)]">Loading scholars...</p>
             </div>
           )}
 
           {/* Error State */}
           {error && (
-            <div className="bg-red-500/10 border border-red-500 rounded-lg p-4 mb-6">
+            <div className="bg-red-500/10 border border-red-500 rounded-kd p-4 mb-6">
               <p className="text-red-500">Error: {error}</p>
             </div>
           )}
 
-          {/* Students Grid */}
+          {/* Scholars Grid */}
           {!loading && !error && (
-            <StudentGrid
+            <ScholarGrid
               students={students}
               onStudentClick={setSelectedStudent}
               filter={filter}
@@ -188,9 +188,9 @@ export default function TeacherDashboard() {
         </div>
       </div>
 
-      {/* Student Detail Modal */}
+      {/* Scholar Detail Modal */}
       {selectedStudent && (
-        <StudentDetailModal
+        <ScholarDetailModal
           studentId={selectedStudent}
           studentDetails={studentDetails}
           onClose={handleCloseModal}
