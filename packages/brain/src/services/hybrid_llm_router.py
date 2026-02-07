@@ -107,13 +107,21 @@ class HybridLLMRouter:
             if not self.config.cloud_api_key:
                 raise ValueError("Cloud API key not configured")
 
+            # Build provider kwargs - only pass group_id for minimax
+            provider_kwargs = {
+                "api_key": self.config.cloud_api_key,
+                "base_url": self.config.cloud_base_url,
+                "model": self.config.cloud_model,
+            }
+
+            # Only pass group_id for minimax provider
+            if self.config.cloud_provider == "minimax" and self.config.cloud_group_id:
+                provider_kwargs["group_id"] = self.config.cloud_group_id
+
             # Create provider based on type
             self._cloud_provider = create_provider(
                 provider_type=self.config.cloud_provider,
-                api_key=self.config.cloud_api_key,
-                base_url=self.config.cloud_base_url,
-                model=self.config.cloud_model,
-                group_id=self.config.cloud_group_id  # For Minimax
+                **provider_kwargs
             )
 
         return self._cloud_provider
@@ -540,4 +548,20 @@ class HybridLLMRouter:
 
 
 # Global singleton instance
-hybrid_router = HybridLLMRouter()
+hybrid_router = HybridLLMRouter(
+    config=HybridLLMConfig(
+        local_provider=settings.llm_provider,
+        local_model=settings.llm_model,
+        local_base_url=settings.llm_base_url,
+        cloud_provider=settings.llm_cloud_provider,
+        cloud_api_key=settings.llm_cloud_api_key,
+        cloud_base_url=settings.llm_cloud_base_url,
+        cloud_model=settings.llm_cloud_model,
+        cloud_group_id=settings.llm_cloud_group_id if settings.llm_cloud_provider == "minimax" else None,
+        cloud_threshold=settings.llm_cloud_threshold,
+        force_cloud_for=settings.llm_force_cloud_for,
+        local_only_for=settings.llm_local_only_for,
+        anonymization_enabled=settings.llm_anonymization_enabled,
+        anonymization_method=settings.anonymization_method,
+    )
+)
