@@ -53,6 +53,7 @@ export interface StudentSkillsOutput {
   mastered_count: number;
   learning_count: number;
   struggling_count: number;
+  recent_events: LiveFeedEvent[];
 }
 
 export interface StudentCardOutput {
@@ -72,6 +73,9 @@ export interface ClassOverviewOutput {
   total_students: number;
   struggling_students: number;
   class_avg_mastery: number;
+  count_ready: number;
+  count_distracted: number;
+  count_intervention: number;
 }
 
 export interface SkillRegistryEntry {
@@ -89,6 +93,14 @@ export interface SkillsListOutput {
     subject?: string;
     grade_level?: number;
   };
+}
+
+export interface LiveFeedEvent {
+  user_id: string;
+  event_type: "STUDENT_ACTION" | "AGENT_ACTION";
+  timestamp: string;
+  source_text?: string;
+  metadata: Record<string, unknown>;
 }
 
 // ============================================================================
@@ -167,6 +179,20 @@ export async function listSkills(options?: {
   }
 
   return res.json();
+}
+
+/**
+ * Get recent learning events for the Live Feed sidebar
+ */
+export async function getRecentEvents(limit: number = 20): Promise<LiveFeedEvent[]> {
+  const res = await fetch(`${API_BASE}/recent-events?limit=${limit}`);
+
+  if (!res.ok) {
+    throw new Error(`Failed to get recent events: ${res.statusText}`);
+  }
+
+  const data = await res.json();
+  return data.events || [];
 }
 
 // ============================================================================

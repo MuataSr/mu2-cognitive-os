@@ -57,3 +57,4 @@ docker-volumes/
 venv/
 audit-reports/
 mu2-usb/
+/tmp/.sudo_creds

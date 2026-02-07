@@ -13,31 +13,24 @@ Hardcoded Narrative:
 - Event 3: PBL query about "Water Pumps" -> Returns OpenStax Ch 5 citation
 
 Usage:
-    python seeds/demo_day_scenario.py
+    python3 seeds/demo_day_scenario.py
 
 Requirements:
     - Database must be running (docker-compose up -d)
-    - psycopg2 or asyncpg installed
+    - psycopg2-binary installed
 """
 
-import asyncio
 import sys
-import os
+import json
 from datetime import datetime, timedelta
-from pathlib import Path
-
-# Add the brain package to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "packages" / "brain"))
 
 try:
-    import asyncpg
-    from src.services.mastery_engine import MasteryState, LearningEvent, mastery_engine
-except ImportError as e:
-    print(f"Error importing required modules: {e}")
-    print("Please ensure the database is running and dependencies are installed:")
-    print("  pip install asyncpg")
-    sys.exit(1)
-
+    import psycopg
+except ImportError:
+    print("Installing psycopg...")
+    import subprocess
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "psycopg[binary]", "-q"])
+    import psycopg
 
 # ============================================================================
 # DEMO CONFIGURATION - The "Darius" Story
@@ -84,52 +77,148 @@ DEMO_EVENTS = [
 # DATABASE FUNCTIONS
 # ============================================================================
 
-async def get_db_connection():
+def get_db_connection():
     """Connect to the Mu2 Cognitive OS database"""
-    try:
-        conn = await asyncpg.connect(
-            host="localhost",
-            port=54322,
-            user="postgres",
-            password="",
-            database="postgres"
-        )
-        return conn
-    except Exception as e:
-        print(f"Failed to connect to database: {e}")
-        print("Please ensure:")
-        print("  1. docker-compose is running (docker-compose up -d)")
-        print("  2. Database is accessible on localhost:54322")
-        sys.exit(1)
+    # Try multiple connection methods
+    connection_params = [
+        # Try with password
+        {
+            "host": "localhost",
+            "port": 54322,
+            "user": "postgres",
+            "password": "your-super-secret-and-long-postgres-password",
+            "dbname": "postgres"
+        },
+        # Try without password
+        {
+            "host": "localhost",
+            "port": 54322,
+            "user": "postgres",
+            "dbname": "postgres"
+        },
+    ]
+
+    for params in connection_params:
+        try:
+            conn = psycopg.connect(**params)
+            conn.autocommit = True
+            print(f"Connected to database (port {params['port']})")
+            return conn
+        except Exception as e:
+            continue
+
+    print("Failed to connect to database with any method")
+    print("Please ensure:")
+    print("  1. docker-compose is running (docker-compose up -d)")
+    print("  2. Database is accessible on localhost:54322")
+    sys.exit(1)
 
 
-async def wipe_demo_data(conn):
+def wipe_demo_data(conn):
     """Clean any existing demo data to ensure clean slate"""
     print("\n[STEP 1] Wiping existing demo data...")
 
-    await conn.execute("""
-        DELETE FROM cortex.user_sessions
-        WHERE user_id = $1
-    """, DEMO_STUDENT["user_id"])
+    cursor = conn.cursor()
 
-    await conn.execute("""
-        DELETE FROM cortex.learning_events
-        WHERE user_id = $1
-    """, DEMO_STUDENT["user_id"])
+    # Check if tables exist first
+    cursor.execute("""
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_schema = 'cortex'
+            AND table_name = 'user_sessions'
+        );
+    """)
 
-    await conn.execute("""
-        DELETE FROM cortex.mastery_states
-        WHERE user_id = $1
-    """, DEMO_STUDENT["user_id"])
+    if cursor.fetchone()[0]:
+        cursor.execute("""
+            DELETE FROM cortex.user_sessions
+            WHERE user_id = %s
+        """, (DEMO_STUDENT["user_id"],))
+        print(f"  Cleaned user_sessions for student: {DEMO_STUDENT['user_id']}")
+    else:
+        print("  Creating cortex schema...")
 
-    print(f"  Cleaned data for student: {DEMO_STUDENT['user_id']}")
+    # Check if mastery_states table exists
+    cursor.execute("""
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_schema = 'cortex'
+            AND table_name = 'mastery_states'
+        );
+    """)
+
+    if cursor.fetchone()[0]:
+        cursor.execute("""
+            DELETE FROM cortex.mastery_states
+            WHERE user_id = %s
+        """, (DEMO_STUDENT["user_id"],))
+        print(f"  Cleaned mastery_states for student: {DEMO_STUDENT['user_id']}")
 
 
-async def create_student_session(conn):
+def ensure_tables_exist(conn):
+    """Ensure required tables exist"""
+    print("\n[STEP 1.5] Ensuring tables exist...")
+
+    cursor = conn.cursor()
+
+    # Ensure cortex schema exists
+    cursor.execute("CREATE SCHEMA IF NOT EXISTS cortex;")
+
+    # Check for user_sessions table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS cortex.user_sessions (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id TEXT NOT NULL,
+            session_start TIMESTAMPTZ DEFAULT NOW(),
+            session_end TIMESTAMPTZ,
+            current_mode TEXT DEFAULT 'standard',
+            focus_level INTEGER DEFAULT 50,
+            metadata JSONB DEFAULT '{}',
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+    """)
+
+    # Check for mastery_states table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS cortex.mastery_states (
+            user_id TEXT NOT NULL,
+            skill_id TEXT NOT NULL,
+            probability_mastery FLOAT DEFAULT 0.5,
+            total_attempts INTEGER DEFAULT 0,
+            correct_attempts INTEGER DEFAULT 0,
+            consecutive_correct INTEGER DEFAULT 0,
+            consecutive_incorrect INTEGER DEFAULT 0,
+            last_attempt_at TIMESTAMPTZ,
+            metadata JSONB DEFAULT '{}',
+            PRIMARY KEY (user_id, skill_id)
+        );
+    """)
+
+    # Check for textbook_chunks table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS cortex.textbook_chunks (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            chapter_id TEXT NOT NULL,
+            section_id TEXT NOT NULL,
+            content TEXT NOT NULL,
+            grade_level INTEGER DEFAULT 8,
+            subject TEXT DEFAULT 'science',
+            metadata JSONB DEFAULT '{}',
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+    """)
+
+    conn.commit()
+    print("  All required tables exist")
+
+
+def create_student_session(conn):
     """Create the initial session for Darius"""
     print("\n[STEP 2] Creating student session...")
 
-    session_id = await conn.fetchval("""
+    cursor = conn.cursor()
+
+    cursor.execute("""
         INSERT INTO cortex.user_sessions (
             user_id,
             session_start,
@@ -137,16 +226,19 @@ async def create_student_session(conn):
             focus_level,
             metadata
         ) VALUES (
-            $1, NOW(), 'standard', 50,
-            $2::jsonb
+            %s, NOW(), 'standard', 50,
+            %s::jsonb
         )
         RETURNING id
-    """, DEMO_STUDENT["user_id"], {
+    """, (DEMO_STUDENT["user_id"], json.dumps({
         "full_name": DEMO_STUDENT["full_name"],
         "interest_area": DEMO_STUDENT["interest_area"],
         "grade_level": DEMO_STUDENT["grade_level"],
         "is_demo_student": True,
-    })
+    })))
+
+    session_id = cursor.fetchone()[0]
+    conn.commit()
 
     print(f"  Session created: {session_id}")
     print(f"  Student: {DEMO_STUDENT['full_name']}")
@@ -155,13 +247,14 @@ async def create_student_session(conn):
     return session_id
 
 
-async def seed_morning_circle_event(conn, session_id):
+def seed_morning_circle_event(conn, session_id):
     """Seed Event 1: Morning Circle with tired sentiment"""
     print("\n[STEP 3] Seeding Morning Circle event...")
 
+    cursor = conn.cursor()
     event = DEMO_EVENTS[0]
 
-    await conn.execute("""
+    cursor.execute("""
         INSERT INTO cortex.user_sessions (
             user_id,
             session_start,
@@ -169,29 +262,32 @@ async def seed_morning_circle_event(conn, session_id):
             focus_level,
             metadata
         ) VALUES (
-            $1, $2, 'focus', 30,
-            $3::jsonb
+            %s, %s, 'focus', 30,
+            %s::jsonb
         )
-    """, DEMO_STUDENT["user_id"], event["timestamp"], {
+    """, (DEMO_STUDENT["user_id"], event["timestamp"], json.dumps({
         "event_name": event["name"],
         "sentiment_score": event["sentiment_score"],
         "intervention_triggered": True,
         "is_demo_data": True,
-    })
+    })))
+
+    conn.commit()
 
     print(f"  Event: {event['name']}")
     print(f"  Sentiment: {event['sentiment_score']} (Tired)")
     print(f"  Expected: System triggers Focus Mode intervention")
 
 
-async def seed_mastery_event(conn, session_id):
+def seed_mastery_event(conn, session_id):
     """Seed Event 2: Math Sprint with high mastery"""
     print("\n[STEP 4] Seeding Math Sprint mastery event...")
 
+    cursor = conn.cursor()
     event = DEMO_EVENTS[1]
 
     # Create mastery state directly
-    await conn.execute("""
+    cursor.execute("""
         INSERT INTO cortex.mastery_states (
             user_id,
             skill_id,
@@ -202,20 +298,22 @@ async def seed_mastery_event(conn, session_id):
             last_attempt_at,
             metadata
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7,
-            $8::jsonb
+            %s, %s, %s, %s, %s, %s, %s,
+            %s::jsonb
         )
         ON CONFLICT (user_id, skill_id) DO UPDATE SET
-            probability_mastery = $3,
-            total_attempts = $4,
-            correct_attempts = $5,
-            consecutive_correct = $6,
-            last_attempt_at = $7
-    """, DEMO_STUDENT["user_id"], event["skill_id"],
-       event["mastery_after"], 12, 11, 5, event["timestamp"], {
+            probability_mastery = EXCLUDED.probability_mastery,
+            total_attempts = EXCLUDED.total_attempts,
+            correct_attempts = EXCLUDED.correct_attempts,
+            consecutive_correct = EXCLUDED.consecutive_correct,
+            last_attempt_at = EXCLUDED.last_attempt_at
+    """, (DEMO_STUDENT["user_id"], event["skill_id"],
+       event["mastery_after"], 12, 11, 5, event["timestamp"], json.dumps({
         "skill_name": event["skill_name"],
         "is_demo_data": True,
-    })
+    })))
+
+    conn.commit()
 
     print(f"  Event: {event['name']}")
     print(f"  Skill: {event['skill_name']}")
@@ -223,34 +321,21 @@ async def seed_mastery_event(conn, session_id):
     print(f"  Expected: Green dot status, celebration message")
 
 
-async def seed_textbook_content_for_pbl(conn):
+def seed_textbook_content_for_pbl(conn):
     """Seed textbook content about water pumps for PBL query"""
     print("\n[STEP 5] Seeding textbook content for PBL query...")
 
+    cursor = conn.cursor()
     event = DEMO_EVENTS[2]
 
     # Clear existing water pump content first
-    await conn.execute("""
+    cursor.execute("""
         DELETE FROM cortex.textbook_chunks
         WHERE metadata->>'demo_content' = 'true'
     """)
 
     # Insert water pump content from OpenStax style
-    await conn.execute("""
-        INSERT INTO cortex.textbook_chunks (
-            chapter_id,
-            section_id,
-            content,
-            grade_level,
-            subject,
-            metadata
-        ) VALUES (
-            'openstax-physics-ch05', 'fluid-mechanics-pumps',
-            $1,
-            12, 'college',
-            $2::jsonb
-        )
-    """, f"""
+    water_pump_content = """
     Water pumps are devices that move fluids by mechanical action, typically
     converting electrical energy into hydraulic energy. The basic principle
     involves creating a pressure differential that drives fluid flow.
@@ -258,7 +343,7 @@ async def seed_textbook_content_for_pbl(conn):
     In engineering applications, pumps are classified into two main categories:
     1. Positive displacement pumps - trap a fixed amount of fluid and force it
        into the discharge pipe (e.g., piston pumps, gear pumps)
-    2. Centugal pumps - convert rotational kinetic energy to hydrodynamic
+    2. Centrifugal pumps - convert rotational kinetic energy to hydrodynamic
        energy (e.g., the common water pumps used in buildings)
 
     The efficiency of a pump is determined by its ability to minimize energy
@@ -273,40 +358,63 @@ async def seed_textbook_content_for_pbl(conn):
     - Efficiency (η): Ratio of output power to input power
 
     Source: OpenStax College Physics, Chapter 5: Fluid Mechanics and Applications
-    """, {
+    """
+
+    cursor.execute("""
+        INSERT INTO cortex.textbook_chunks (
+            chapter_id,
+            section_id,
+            content,
+            grade_level,
+            subject,
+            metadata
+        ) VALUES (
+            'openstax-physics-ch05', 'fluid-mechanics-pumps',
+            %s,
+            12, 'college',
+            %s::jsonb
+        )
+    """, (water_pump_content, json.dumps({
         "source": "OpenStax College Physics",
         "chapter": 5,
         "section": "Fluid Mechanics",
         "topic": "water-pumps",
         "demo_content": "true",
-    })
+    })))
+
+    conn.commit()
 
     print(f"  Seeded content: Water pumps from OpenStax Ch 5")
     print(f"  Query: {event['query']}")
     print(f"  Expected: System retrieves this exact content with citation")
 
 
-async def verify_demo_data(conn):
+def verify_demo_data(conn):
     """Verify all demo data was inserted correctly"""
     print("\n[STEP 6] Verifying demo data...")
 
+    cursor = conn.cursor()
+
     # Check user sessions
-    sessions = await conn.fetchval("""
+    cursor.execute("""
         SELECT COUNT(*) FROM cortex.user_sessions
-        WHERE user_id = $1
-    """, DEMO_STUDENT["user_id"])
+        WHERE user_id = %s
+    """, (DEMO_STUDENT["user_id"],))
+    sessions = cursor.fetchone()[0]
 
     # Check mastery states
-    mastery = await conn.fetchval("""
+    cursor.execute("""
         SELECT COUNT(*) FROM cortex.mastery_states
-        WHERE user_id = $1
-    """, DEMO_STUDENT["user_id"])
+        WHERE user_id = %s
+    """, (DEMO_STUDENT["user_id"],))
+    mastery = cursor.fetchone()[0]
 
     # Check textbook content
-    content = await conn.fetchval("""
+    cursor.execute("""
         SELECT COUNT(*) FROM cortex.textbook_chunks
         WHERE metadata->>'demo_content' = 'true'
     """)
+    content = cursor.fetchone()[0]
 
     print(f"\n  ✓ User Sessions: {sessions}")
     print(f"  ✓ Mastery States: {mastery}")
@@ -320,7 +428,7 @@ async def verify_demo_data(conn):
         return False
 
 
-async def print_demo_script():
+def print_demo_script():
     """Print the demo script for the presenter"""
     print("\n" + "="*70)
     print("DEMO DAY SCRIPT - Present to Investors")
@@ -365,7 +473,7 @@ async def print_demo_script():
     print("\n" + "="*70)
 
 
-async def main():
+def main():
     """Main execution function"""
     print("\n" + "="*70)
     print("Mu2 Cognitive OS - Demo Day Scenario Seeder")
@@ -376,25 +484,28 @@ async def main():
     conn = None
     try:
         # Connect to database
-        conn = await get_db_connection()
+        conn = get_db_connection()
+
+        # Ensure tables exist
+        ensure_tables_exist(conn)
 
         # Wipe existing demo data
-        await wipe_demo_data(conn)
+        wipe_demo_data(conn)
 
         # Create student session
-        session_id = await create_student_session(conn)
+        session_id = create_student_session(conn)
 
         # Seed demo events
-        await seed_morning_circle_event(conn, session_id)
-        await seed_mastery_event(conn, session_id)
-        await seed_textbook_content_for_pbl(conn)
+        seed_morning_circle_event(conn, session_id)
+        seed_mastery_event(conn, session_id)
+        seed_textbook_content_for_pbl(conn)
 
         # Verify data
-        success = await verify_demo_data(conn)
+        success = verify_demo_data(conn)
 
         if success:
             # Print demo script
-            await print_demo_script()
+            print_demo_script()
 
             print("\n✅ Demo scenario seeded successfully!")
             print("\nNext steps:")
@@ -416,8 +527,8 @@ async def main():
 
     finally:
         if conn:
-            await conn.close()
+            conn.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

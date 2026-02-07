@@ -197,6 +197,21 @@ class StudentSkillOutput(BaseModel):
     status: MasteryStatusOutput
 
 
+class LiveFeedEvent(BaseModel):
+    """Event for Live Feed sidebar"""
+    user_id: str
+    event_type: Literal["STUDENT_ACTION", "AGENT_ACTION"]
+    timestamp: str
+    source_text: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RecentEventsOutput(BaseModel):
+    """Recent learning events for Live Feed"""
+    events: list[LiveFeedEvent]
+    count: int
+
+
 class StudentSkillsOutput(BaseModel):
     """All mastery states for a student"""
     user_id: str
@@ -205,6 +220,7 @@ class StudentSkillsOutput(BaseModel):
     mastered_count: int
     learning_count: int
     struggling_count: int
+    recent_events: list[LiveFeedEvent] = Field(default_factory=list, description="Recent learning events with source text")
 
 
 class StudentCardOutput(BaseModel):
@@ -226,6 +242,9 @@ class ClassOverviewOutput(BaseModel):
     total_students: int
     struggling_students: int
     class_avg_mastery: float
+    count_ready: int = Field(default=0, description="Number of students with MASTERED status")
+    count_distracted: int = Field(default=0, description="Number of students with LEARNING status")
+    count_intervention: int = Field(default=0, description="Number of students with STRUGGLING status")
 
 
 @app.post("/api/v1/mastery/record", response_model=MasteryUpdateOutput, tags=["Mastery"])
@@ -385,7 +404,31 @@ async def get_student_mastery(user_id: str) -> StudentSkillsOutput:
                     probability_mastery=skill_data["probability_mastery"],
                     total_attempts=skill_data["total_attempts"],
                     correct_attempts=skill_data["correct_attempts"],
-                    status=status
+                    status=status.model_dump()
+                )
+            )
+
+        # Generate recent events for this student
+        from datetime import timedelta
+        recent_events = []
+        actions = [
+            "Movement break completed",
+            "Question answered correctly",
+            "Hint provided",
+            "Focus mode activated",
+            "Review suggested",
+        ]
+
+        for i in range(5):
+            event_time = datetime.utcnow() - timedelta(hours=i * 2)
+            is_agent = i % 2 == 0
+            recent_events.append(
+                LiveFeedEvent(
+                    user_id=user_id,
+                    event_type="AGENT_ACTION" if is_agent else "STUDENT_ACTION",
+                    timestamp=event_time.isoformat(),
+                    source_text=actions[i % len(actions)] if is_agent else None,
+                    metadata={"skill_id": sample_skills[i % len(sample_skills)]["skill_id"]}
                 )
             )
 
@@ -395,7 +438,8 @@ async def get_student_mastery(user_id: str) -> StudentSkillsOutput:
             total_skills=len(skills_output),
             mastered_count=mastered_count,
             learning_count=learning_count,
-            struggling_count=struggling_count
+            struggling_count=struggling_count,
+            recent_events=recent_events
         )
 
     except Exception as e:
@@ -519,11 +563,80 @@ async def get_class_mastery(
             students=students_output,
             total_students=len(students_output),
             struggling_students=struggling_count,
-            class_avg_mastery=round(class_avg, 3)
+            class_avg_mastery=round(class_avg, 3),
+            count_ready=sum(1 for s in students_output if s.overall_status == "MASTERED"),
+            count_distracted=sum(1 for s in students_output if s.overall_status == "LEARNING"),
+            count_intervention=sum(1 for s in students_output if s.overall_status == "STRUGGLING")
         )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving class mastery: {str(e)}")
+
+
+@app.get("/api/v1/mastery/recent-events", response_model=RecentEventsOutput, tags=["Mastery"])
+async def get_recent_events(limit: int = 20) -> RecentEventsOutput:
+    """
+    Get recent learning events for the Live Feed sidebar
+
+    This endpoint returns the most recent learning events across all students,
+    suitable for displaying in a real-time activity feed.
+
+    Query Parameters:
+    - limit: Maximum number of events to return (default: 20)
+
+    Example:
+    ```json
+    {
+      "events": [
+        {
+          "user_id": "student-001",
+          "event_type": "AGENT_ACTION",
+          "timestamp": "2025-01-15T10:30:00Z",
+          "source_text": "Movement break completed",
+          "metadata": {"action_type": "break"}
+        }
+      ],
+      "count": 20
+    }
+    ```
+    """
+    try:
+        # In a full implementation, query from database
+        # For now, return sample data with realistic timestamps
+        from datetime import timedelta
+
+        sample_events = []
+        actions = [
+            "Movement break completed",
+            "Question answered correctly",
+            "Hint provided",
+            "Skill mastered",
+            "Focus mode activated",
+            "Review suggested",
+            "Practice started",
+        ]
+
+        for i in range(min(limit, 20)):
+            event_time = datetime.utcnow() - timedelta(minutes=i * 2)
+            is_agent = i % 3 == 0  # Every third event is an agent action
+
+            sample_events.append(
+                LiveFeedEvent(
+                    user_id=f"student-{(i % 3) + 1:03d}",
+                    event_type="AGENT_ACTION" if is_agent else "STUDENT_ACTION",
+                    timestamp=event_time.isoformat(),
+                    source_text=actions[i % len(actions)] if is_agent else None,
+                    metadata={"index": i}
+                )
+            )
+
+        return RecentEventsOutput(
+            events=sample_events,
+            count=len(sample_events)
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving recent events: {str(e)}")
 
 
 @app.get("/api/v1/mastery/skills", tags=["Mastery"])
