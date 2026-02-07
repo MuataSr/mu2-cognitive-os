@@ -1,10 +1,11 @@
 """
 Retrieval Nodes for Morning Circle State Machine
-Integrates vector store retrieval with LangGraph
+Integrates vector store retrieval with LangGraph and Hybrid LLM Router
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from src.core.state import MorningCircleState
+from src.core.config import settings
 from src.services.sqlite_vector_store import sqlite_vector_store
 
 
@@ -93,13 +94,80 @@ async def generate_response_with_context(state: MorningCircleState) -> MorningCi
     """
     Generate response using retrieved context from vector store
 
-    This node uses the retrieved chunks to provide informed responses
+    This node uses the retrieved chunks and optionally the hybrid LLM router
+    to provide informed responses.
     """
+    from src.services.hybrid_llm_router import hybrid_router, LLMPurpose
+
     sentiment = state["sentiment_label"]
     retrieval_type = state["retrieval_type"]
     mode = state["mode"]
     retrieved_context = state.get("retrieved_context", {})
+    message = state.get("message", "")
+    user_id = state.get("user_id")
 
+    # Check if we should use hybrid LLM routing
+    use_hybrid_llm = settings.llm_hybrid_mode
+
+    # Build context string
+    context_str = ""
+    if retrieved_context.get("results"):
+        context_count = retrieved_context.get("count", 0)
+        avg_score = retrieved_context.get("avg_score", 0.0)
+        context_results = retrieved_context["results"]
+
+        if context_results:
+            context_str = "\n\n".join([f"- {ctx}" for ctx in context_results[:3]])
+
+    # Generate response
+    if use_hybrid_llm and context_str:
+        # Use hybrid LLM router for intelligent response generation
+        try:
+            prompt = f"""You are a helpful educational assistant. Answer the student's question using the provided context.
+
+Context from knowledge base:
+{context_str}
+
+Student's question: {message}
+
+Provide a clear, educational response. If the context doesn't fully answer the question, acknowledge that and provide what help you can."""
+
+            llm_response = await hybrid_router.generate(
+                query=prompt,
+                purpose=LLMPurpose.GENERATION,
+                user_id=user_id,
+                max_tokens=500,
+                temperature=0.7
+            )
+
+            response = llm_response.text
+
+            # Store routing metadata
+            routing = llm_response.raw_response.get("routing_decision", {}) if llm_response.raw_response else {}
+            state["llm_provider_used"] = routing.get("provider", "unknown")
+            state["llm_routing_reason"] = routing.get("reason", "")
+            state["complexity_score"] = routing.get("complexity_score", 0.0)
+
+        except Exception as e:
+            # Fallback to template-based response
+            response = _generate_template_response(retrieval_context, retrieval_type, sentiment)
+            state["llm_provider_used"] = "fallback"
+            state["llm_routing_reason"] = f"LLM error: {str(e)}"
+    else:
+        # Use template-based response
+        response = _generate_template_response(retrieved_context, retrieval_type, sentiment)
+        state["llm_provider_used"] = "template"
+
+    state["response"] = response
+    return state
+
+
+def _generate_template_response(
+    retrieved_context: Dict[str, Any],
+    retrieval_type: str,
+    sentiment: str
+) -> str:
+    """Generate a template-based response when LLM is not used"""
     # Build response based on retrieved context
     if retrieved_context.get("results"):
         # We have relevant retrieved information
@@ -129,6 +197,4 @@ async def generate_response_with_context(state: MorningCircleState) -> MorningCi
     elif sentiment == "positive":
         response = f"Great question! {response}"
 
-    state["response"] = response
-
-    return state
+    return response

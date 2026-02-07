@@ -58,6 +58,16 @@ class ChatOutput(BaseModel):
     retrieval_type: Literal["fact", "concept"] = Field(..., description="Type of retrieval performed")
     sources: list[str] = Field(default_factory=list, description="List of sources used")
 
+    # Hybrid LLM Metadata
+    llm_provider_used: Optional[str] = Field(None, description="LLM provider used (local/cloud)")
+    llm_routing_reason: Optional[str] = Field(None, description="Reason for provider selection")
+    complexity_score: Optional[float] = Field(None, description="Query complexity score")
+
+    # Anonymization Metadata (FERPA Compliance)
+    was_anonymized: bool = Field(default=False, description="Whether input was anonymized")
+    pii_detected: bool = Field(default=False, description="Whether PII was detected in input")
+    anonymization_summary: Optional[dict[str, Any]] = Field(None, description="Summary of anonymization (no original text)")
+
 
 class HealthResponse(BaseModel):
     """Health check response"""
@@ -100,15 +110,54 @@ async def chat(input_data: ChatInput) -> ChatOutput:
     """
     Main chat endpoint using the Morning Circle state machine
 
-    Flow: Input -> Sentiment Analysis -> Context Routing -> Retrieval -> Output
+    Flow: Input -> Anonymization -> Sentiment Analysis -> Context Routing -> Retrieval -> Output
+
+    FERPA Compliance:
+    - All input is anonymized before processing
+    - PII is detected and removed
+    - Original text never logged or sent to external services
     """
     try:
         # Run the morning circle graph
         result = await morning_circle_graph.ainvoke(
-            {"message": input_data.message, "mode": input_data.mode, "sources": [], "retrieved_context": {}}
+            {
+                "message": input_data.message,
+                "mode": input_data.mode,
+                "user_id": input_data.user_id,
+                "sources": [],
+                "retrieved_context": {}
+            }
         )
 
-        return ChatOutput(**result)
+        # Extract anonymization metadata
+        anonymization_metadata = result.get("anonymization_metadata", {})
+        was_anonymized = anonymization_metadata is not None
+        pii_detected = anonymization_metadata.get("pii_count", 0) > 0 if anonymization_metadata else False
+
+        # Build output
+        output = ChatOutput(
+            response=result.get("response", ""),
+            sentiment=SentimentResult(
+                score=result.get("sentiment_score", 0.0),
+                label=result.get("sentiment_label", "neutral"),
+                confidence=0.8  # Placeholder
+            ),
+            suggested_mode=result.get("mode", "standard"),
+            retrieval_type=result.get("retrieval_type", "fact"),
+            sources=result.get("sources", []),
+            llm_provider_used=result.get("llm_provider_used"),
+            llm_routing_reason=result.get("llm_routing_reason"),
+            complexity_score=result.get("complexity_score"),
+            was_anonymized=was_anonymized,
+            pii_detected=pii_detected,
+            anonymization_summary={
+                "method": anonymization_metadata.get("anonymization_method"),
+                "pii_count": anonymization_metadata.get("pii_count", 0),
+                "entities_detected": anonymization_metadata.get("entities_detected", [])
+            } if anonymization_metadata else None
+        )
+
+        return output
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
@@ -725,6 +774,149 @@ async def query_vector_store(q: str, retrieval_type: str = "fact", top_k: int = 
         results = await sqlite_vector_store.retrieve_hybrid(q, top_k=top_k)
 
     return {"query": q, "retrieval_type": retrieval_type, "results": results, "count": len(results)}
+
+
+# ============================================================================
+# Hybrid LLM & Anonymization API Endpoints
+# ============================================================================
+
+class AnonymizeInput(BaseModel):
+    """Input for anonymization test"""
+    text: str = Field(..., description="Text to anonymize")
+    user_id: Optional[str] = Field(None, description="Optional user ID to mask")
+
+
+class AnonymizeOutput(BaseModel):
+    """Output from anonymization"""
+    original_text: str = Field(..., description="Original input text")
+    anonymized_text: str = Field(..., description="Text with PII removed")
+    has_pii: bool = Field(..., description="Whether PII was detected")
+    pii_count: int = Field(..., description="Number of PII entities detected")
+    entities_detected: list[dict[str, Any]] = Field(default_factory=list, description="List of detected PII entities")
+    safe_for_cloud: bool = Field(..., description="Whether text is safe to send to cloud")
+
+
+@app.post("/api/v1/test/anonymize", response_model=AnonymizeOutput, tags=["Testing"])
+async def test_anonymize(input_data: AnonymizeInput) -> AnonymizeOutput:
+    """
+    Test the PII anonymization service
+
+    This endpoint demonstrates how the system detects and removes PII
+    before sending data to external services.
+
+    Example:
+    ```json
+    {
+      "text": "My name is John Smith and my email is john@example.com",
+      "user_id": "student-123"
+    }
+    ```
+
+    Returns:
+        Anonymized text with PII removed
+    """
+    from src.services.anonymization_service import anonymization_service
+
+    try:
+        result = await anonymization_service.anonymize_text(
+            text=input_data.text,
+            user_id=input_data.user_id,
+            include_metadata=True
+        )
+
+        return AnonymizeOutput(
+            original_text=input_data.text,  # Only for testing - never logged in production
+            anonymized_text=result.anonymized_text,
+            has_pii=result.has_pii,
+            pii_count=result.pii_count,
+            entities_detected=result.metadata.get("entities_detected", []),
+            safe_for_cloud=result.safe_for_cloud
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Anonymization error: {str(e)}")
+
+
+@app.get("/api/v1/hybrid/health", tags=["Hybrid LLM"])
+async def hybrid_health() -> dict[str, Any]:
+    """
+    Check the health of the hybrid LLM system
+
+    Returns status for:
+    - Local Ollama availability
+    - Cloud provider configuration
+    - Anonymization service status
+    """
+    from src.services.hybrid_llm_router import hybrid_router
+
+    try:
+        health = await hybrid_router.health_check()
+        return health
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e)
+        }
+
+
+class HybridGenerateInput(BaseModel):
+    """Input for hybrid LLM generation test"""
+    prompt: str = Field(..., description="Prompt to generate from")
+    user_id: Optional[str] = Field(None, description="Optional user ID")
+    temperature: float = Field(0.7, ge=0.0, le=1.0)
+    max_tokens: int = Field(500, ge=1, le=4096)
+
+
+class HybridGenerateOutput(BaseModel):
+    """Output from hybrid LLM generation"""
+    response: str = Field(..., description="Generated response")
+    provider_used: str = Field(..., description="Which provider was used (local/cloud)")
+    routing_reason: str = Field(..., description="Why this provider was chosen")
+    complexity_score: float = Field(..., description="Query complexity score")
+    was_anonymized: bool = Field(..., description="Whether input was anonymized")
+    tokens_used: Optional[int] = Field(None, description="Tokens used for generation")
+
+
+@app.post("/api/v1/hybrid/generate", response_model=HybridGenerateOutput, tags=["Hybrid LLM"])
+async def test_hybrid_generate(input_data: HybridGenerateInput) -> HybridGenerateOutput:
+    """
+    Test the hybrid LLM router
+
+    This endpoint demonstrates how the system routes between local and cloud LLMs
+    based on query complexity, PII detection, and configuration.
+
+    Example:
+    ```json
+    {
+      "prompt": "Explain photosynthesis in detail",
+      "user_id": "student-123"
+    }
+    ```
+    """
+    from src.services.hybrid_llm_router import hybrid_router, LLMPurpose
+
+    try:
+        response = await hybrid_router.generate(
+            query=input_data.prompt,
+            purpose=LLMPurpose.GENERATION,
+            user_id=input_data.user_id,
+            temperature=input_data.temperature,
+            max_tokens=input_data.max_tokens
+        )
+
+        routing = response.raw_response.get("routing_decision", {}) if response.raw_response else {}
+
+        return HybridGenerateOutput(
+            response=response.text,
+            provider_used=routing.get("provider", "unknown"),
+            routing_reason=routing.get("reason", ""),
+            complexity_score=routing.get("complexity_score", 0.0),
+            was_anonymized=routing.get("was_anonymized", False),
+            tokens_used=response.tokens_used
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Hybrid generation error: {str(e)}")
 
 
 # ============================================================================

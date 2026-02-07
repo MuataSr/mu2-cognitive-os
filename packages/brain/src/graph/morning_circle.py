@@ -2,13 +2,14 @@
 Morning Circle State Machine
 LangGraph implementation for Mu2 Cognitive OS
 
-Flow: Input -> Sentiment Analysis -> Context Routing -> Retrieval -> Output
+Flow: Input -> Anonymization -> Sentiment Analysis -> Context Routing -> Retrieval -> Output
 """
 
 from langgraph.graph import StateGraph, END
-from typing import Literal
+from typing import Literal, Optional
 from pydantic import BaseModel, Field
 from src.core.state import MorningCircleState
+from src.core.config import settings
 from src.graph.retrieval_nodes import route_retrieval
 
 
@@ -17,6 +18,44 @@ class SentimentResult(BaseModel):
     score: float = Field(..., ge=-1.0, le=1.0)
     label: Literal["positive", "neutral", "negative"]
     confidence: float
+
+
+# Node 0: Anonymization (FERPA Compliance)
+async def anonymize_input(state: MorningCircleState) -> MorningCircleState:
+    """
+    Anonymize PII from user input before any processing.
+
+    This is the FIRST node in the pipeline for FERPA compliance.
+    All PII is detected and removed before any LLM processing.
+    """
+    from src.services.anonymization_service import anonymization_service
+
+    message = state.get("message", "")
+    user_id = state.get("user_id")
+
+    # Skip anonymization if disabled
+    if not settings.llm_anonymization_enabled:
+        state["original_message"] = message
+        state["anonymized_message"] = message
+        state["anonymization_metadata"] = None
+        return state
+
+    # Anonymize the message
+    result = await anonymization_service.anonymize_text(
+        text=message,
+        user_id=user_id,
+        include_metadata=True
+    )
+
+    # Store both original and anonymized versions
+    state["original_message"] = message  # In-memory only, never logged
+    state["anonymized_message"] = result.anonymized_text
+    state["anonymization_metadata"] = result.metadata
+
+    # Update message to use anonymized version for downstream processing
+    state["message"] = result.anonymized_text
+
+    return state
 
 
 # Node 1: Sentiment Analysis
@@ -118,14 +157,16 @@ def build_morning_circle_graph() -> StateGraph:
     workflow = StateGraph(MorningCircleState)
 
     # Add nodes
+    workflow.add_node("anonymize", anonymize_input)  # FERPA compliance first!
     workflow.add_node("sentiment", analyze_sentiment)
     workflow.add_node("route", route_context)
     workflow.add_node("retrieve", route_retrieval)  # New retrieval node
     workflow.add_node("generate", generate_response)
     workflow.add_node("suggest_mode", suggest_mode)
 
-    # Define edges
-    workflow.set_entry_point("sentiment")
+    # Define edges - Start with anonymization
+    workflow.set_entry_point("anonymize")
+    workflow.add_edge("anonymize", "sentiment")
     workflow.add_edge("sentiment", "route")
     workflow.add_edge("route", "retrieve")  # Route to retrieval
     workflow.add_edge("retrieve", "suggest_mode")  # Then to mode suggestion
