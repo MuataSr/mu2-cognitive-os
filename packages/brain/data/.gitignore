@@ -1,0 +1,15 @@
+# Ignore data files but keep directory structure
+!/.gitignore
+!/README.md
+/openstax/pdfs/*
+/openstax/chapters/*
+/openstax/embeddings/*
+/openstax/chunks/*
+/openstax/vectors/*
+
+# But keep the directories themselves
+!openstax/pdfst/.gitkeep
+!openstax/chapters/.gitkeep
+!openstax/embeddings/.gitkeep
+!openstax/chunks/.gitkeep
+!openstax/vectors/.gitkeep
