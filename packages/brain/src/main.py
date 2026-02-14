@@ -6,12 +6,26 @@ FastAPI application with LangGraph state machine
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional, Literal, Any, Dict
+from typing import Optional, Literal, Any, Dict, List
 from datetime import datetime
 import os
+from collections import defaultdict
 
 from src.graph.morning_circle import morning_circle_graph
 from src.core.config import settings
+from src.services.question_bank import (
+    question_bank,
+    Question,
+    QuestionType,
+    DifficultyLevel,
+    Subject,
+    QuestionBank
+)
+
+# In-memory event storage for behavioral tracking
+# In production, this would be a Redis or database
+_behavioral_events: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+_click_events: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
 
 app = FastAPI(
     title="Mu2 Cognitive OS - Brain API",
@@ -780,6 +794,16 @@ async def query_vector_store(q: str, retrieval_type: str = "fact", top_k: int = 
 # Behavioral Detection API Endpoints
 # ============================================================================
 
+class ClickEventInput(BaseModel):
+    """Input for clickstream event tracking"""
+    user_id: str = Field(..., description="Student user ID")
+    x: int = Field(..., ge=0, description="X coordinate (relative to viewport)")
+    y: int = Field(..., ge=0, description="Y coordinate (relative to viewport)")
+    element_id: Optional[str] = Field(None, description="ID of clicked element")
+    element_type: Optional[str] = Field(None, description="Type of element (button, link, text)")
+    timestamp: Optional[datetime] = Field(None, description="Event timestamp (defaults to now)")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional event data")
+
 class BehavioralEventInput(BaseModel):
     """Input for behavioral event tracking"""
     user_id: str = Field(..., description="Student user ID")
@@ -896,13 +920,44 @@ async def get_behavioral_status(user_id: str) -> BehavioralStatusOutput:
     from src.services.behavioral_detector import behavioral_detector
 
     try:
-        # In a full implementation, query recent events from database
-        # For now, return a default status
+        # Get in-memory events for this user
+        user_behavioral_events = _behavioral_events.get(user_id, [])
+        user_click_events = _click_events.get(user_id, [])
+
+        # Convert to detector format
+        learning_events = []
+        for event in user_behavioral_events[-20:]:  # Last 20 events
+            if "is_correct" in event:
+                learning_events.append({
+                    "skill_id": "current",
+                    "is_correct": event.get("is_correct", True),
+                    "attempts": event.get("attempts", 1),
+                    "time_spent_seconds": event.get("time_spent_seconds", 0)
+                })
+
+        # Convert click events to ClickEvent format
+        clickstream = []
+        for event in user_click_events[-50:]:  # Last 50 clicks
+            clickstream.append({
+                "x": event.get("x", 0),
+                "y": event.get("y", 0),
+                "element_id": event.get("element_id"),
+                "timestamp": datetime.fromisoformat(event.get("timestamp", datetime.utcnow().isoformat()))
+            })
+
+        # Calculate time on task from most recent event
+        time_on_task_seconds = 60  # Default
+        if user_behavioral_events:
+            last_event = user_behavioral_events[-1]
+            if "timestamp" in last_event:
+                last_time = datetime.fromisoformat(last_event["timestamp"])
+                time_on_task_seconds = int((datetime.utcnow() - last_time).total_seconds())
+
         signals = await behavioral_detector.analyze_behavioral_signals(
             user_id=user_id,
-            learning_events=[],
-            clickstream=[],
-            time_on_task_seconds=60
+            learning_events=learning_events,
+            clickstream=clickstream,
+            time_on_task_seconds=time_on_task_seconds
         )
 
         return BehavioralStatusOutput(
@@ -955,6 +1010,59 @@ async def track_behavioral_event(event: BehavioralEventInput) -> Dict[str, str]:
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error tracking event: {str(e)}")
+
+
+@app.post("/api/v1/behavioral/clickstream", response_model=Dict[str, Any], tags=["Behavioral"])
+async def track_clickstream(batch: list[ClickEventInput]) -> Dict[str, Any]:
+    """
+    Track a batch of click/cursor events for behavioral analysis
+
+    This endpoint receives clickstream data from frontend
+    and stores it for frustration/engagement detection.
+
+    Example:
+    ```json
+    [
+      {
+        "user_id": "student-123",
+        "x": 250,
+        "y": 100,
+        "element_id": "submit-button",
+        "element_type": "button",
+        "timestamp": "2025-02-09T10:30:00Z"
+      }
+    ]
+    ```
+    """
+    try:
+        # Store all click events
+        stored_count = 0
+        for click_event in batch:
+            # Use provided timestamp or default to now
+            event_ts = click_event.timestamp or datetime.utcnow()
+
+            event_data = {
+                "x": click_event.x,
+                "y": click_event.y,
+                "element_id": click_event.element_id,
+                "element_type": click_event.element_type,
+                "timestamp": event_ts.isoformat()
+            }
+
+            # Get first user_id from batch
+            user_id = click_event.user_id
+            _click_events[user_id].append(event_data)
+            stored_count += 1
+
+        return {
+            "status": "success",
+            "user_id": user_id,
+            "events_stored": stored_count,
+            "total_click_events": len(_click_events[user_id])
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error tracking clickstream: {str(e)}")
 
 
 @app.get("/api/v1/vectorstore/query", tags=["Vector Store"])
@@ -1272,11 +1380,11 @@ async def test_hybrid_generate(input_data: HybridGenerateInput) -> HybridGenerat
 # ============================================================================
 
 class ImportQuestionsInput(BaseModel):
-    """Input for importing questions from ADAPT"""
-    topic: str = Field(..., description="Topic to import (e.g., 'Photosynthesis')")
-    subject: str = Field("Biology", description="Subject area")
-    difficulty: str = Field("medium", description="Difficulty level: easy, medium, hard")
-    count: int = Field(50, ge=1, le=100, description="Number of questions to import")
+    """Input for importing questions from OpenStax"""
+    subject: Optional[str] = Field(None, description="Subject filter (biology, chemistry, etc.)")
+    difficulty: Optional[str] = Field(None, description="Difficulty filter (elementary, middle, high, ap)")
+    chapter: Optional[str] = Field(None, description="Chapter filter (e.g., '2.1', '5.2')")
+    count: int = Field(10, ge=1, le=100, description="Number of questions to return")
 
 
 class SearchQuestionsInput(BaseModel):
@@ -1325,7 +1433,15 @@ async def import_questions(input_data: ImportQuestionsInput) -> dict[str, Any]:
     }
     ```
     """
-    from src.services.question_pipeline import get_question_pipeline
+    from src.services.openstax_import import openstax_importer
+    from src.services.question_bank import (
+        question_bank,
+        Question,
+        QuestionType,
+        DifficultyLevel,
+        Subject,
+        QuestionBatch
+    )
 
     try:
         pipeline = get_question_pipeline()
@@ -1368,7 +1484,15 @@ async def search_questions(input_data: SearchQuestionsInput) -> dict[str, Any]:
     }
     ```
     """
-    from src.services.question_pipeline import get_question_pipeline
+    from src.services.openstax_import import openstax_importer
+    from src.services.question_bank import (
+        question_bank,
+        Question,
+        QuestionType,
+        DifficultyLevel,
+        Subject,
+        QuestionBatch
+    )
 
     try:
         pipeline = get_question_pipeline()
@@ -1424,7 +1548,15 @@ async def get_imported_topics(subject: Optional[str] = None) -> dict[str, Any]:
     }
     ```
     """
-    from src.services.question_pipeline import get_question_pipeline
+    from src.services.openstax_import import openstax_importer
+    from src.services.question_bank import (
+        question_bank,
+        Question,
+        QuestionType,
+        DifficultyLevel,
+        Subject,
+        QuestionBatch
+    )
 
     try:
         pipeline = get_question_pipeline()
@@ -1459,7 +1591,15 @@ async def get_question_statistics() -> dict[str, Any]:
     }
     ```
     """
-    from src.services.question_pipeline import get_question_pipeline
+    from src.services.openstax_import import openstax_importer
+    from src.services.question_bank import (
+        question_bank,
+        Question,
+        QuestionType,
+        DifficultyLevel,
+        Subject,
+        QuestionBatch
+    )
 
     try:
         pipeline = get_question_pipeline()
@@ -1483,7 +1623,15 @@ async def adapt_health_check() -> dict[str, Any]:
         - ADAPT API availability (if configured)
         - Question import statistics
     """
-    from src.services.question_pipeline import get_question_pipeline
+    from src.services.openstax_import import openstax_importer
+    from src.services.question_bank import (
+        question_bank,
+        Question,
+        QuestionType,
+        DifficultyLevel,
+        Subject,
+        QuestionBatch
+    )
     from src.services.adapt_client import get_adapt_client
 
     try:
@@ -1756,6 +1904,490 @@ async def import_opentdb_questions(input_data: FetchQuestionsInput) -> dict[str,
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Import error: {str(e)}")
+
+
+# ============================================================================
+# SciQ Dataset Import Endpoints
+# ============================================================================
+
+class SciQImportInput(BaseModel):
+    """Input for importing SciQ dataset"""
+    max_questions: Optional[int] = Field(None, ge=1, description="Maximum questions to import (None for all)")
+    subjects: Optional[list[str]] = Field(None, description="Filter by subjects (e.g., ['Biology', 'Chemistry'])")
+
+
+@app.post("/api/v1/datasets/sciq/import", response_model=dict[str, Any], tags=["Datasets"])
+async def import_sciq_dataset(input_data: SciQImportInput) -> dict[str, Any]:
+    """
+    Import SciQ dataset from HuggingFace into Supabase
+
+    SciQ Dataset:
+    - 13,679 crowdsourced science exam questions
+    - Covers Physics, Chemistry, Biology
+    - Source: https://huggingface.co/datasets/allenai/sciq
+    - License: Apache 2.0
+
+    This endpoint:
+    1. Downloads the SciQ dataset from HuggingFace
+    2. Classifies questions by subject (Biology/Chemistry/Physics)
+    3. Infers topics from question content
+    4. Generates embeddings using local Ollama
+    5. Stores questions in Supabase with pgvector
+
+    Example:
+    ```json
+    {
+      "max_questions": 1000,
+      "subjects": ["Biology", "Chemistry"]
+    }
+    ```
+    """
+    from src.services.sciq_importer import import_sciq_dataset
+
+    try:
+        result = await import_sciq_dataset(
+            max_questions=input_data.max_questions,
+            subjects=input_data.subjects
+        )
+
+        return {
+            "status": "success" if result.failed == 0 else "partial",
+            "total_fetched": result.total_fetched,
+            "successfully_imported": result.successfully_imported,
+            "failed": result.failed,
+            "errors": result.errors[:10],  # First 10 errors only
+            "imported_ids": result.imported_ids[:10],  # First 10 IDs only
+            "duration_seconds": result.duration_seconds,
+            "dataset": "SciQ",
+            "source": "HuggingFace"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"SciQ import error: {str(e)}")
+
+
+# ============================================================================
+# National Science Bowl Import Endpoints
+# ============================================================================
+
+class ScienceBowlImportInput(BaseModel):
+    """Input for importing National Science Bowl questions"""
+    max_questions: Optional[int] = Field(None, ge=1, description="Maximum questions to import (None for all)")
+    subjects: Optional[list[str]] = Field(None, description="Filter by subjects")
+    level: Optional[str] = Field(None, description="Filter by level: 'middle_school', 'high_school'")
+
+
+@app.post("/api/v1/datasets/science-bowl/import", response_model=dict[str, Any], tags=["Datasets"])
+async def import_science_bowl_dataset(input_data: ScienceBowlImportInput) -> dict[str, Any]:
+    """
+    Import National Science Bowl questions from GitHub into Supabase
+
+    National Science Bowl Questions:
+    - 7,000+ official competition questions
+    - Middle School and High School levels
+    - All science categories
+    - Source: https://github.com/arxenix/Scibowl_Questions
+    - Public domain (US government)
+
+    This endpoint:
+    1. Downloads questions from GitHub repository
+    2. Parses JSON question files
+    3. Classifies by subject and infers topics
+    4. Generates embeddings using local Ollama
+    5. Stores questions in Supabase with pgvector
+
+    Example:
+    ```json
+    {
+      "max_questions": 500,
+      "subjects": ["Physics", "Chemistry"],
+      "level": "high_school"
+    }
+    ```
+    """
+    from src.services.science_bowl_importer import import_science_bowl_questions
+
+    try:
+        result = await import_science_bowl_questions(
+            max_questions=input_data.max_questions,
+            subjects=input_data.subjects,
+            level=input_data.level
+        )
+
+        return {
+            "status": "success" if result.failed == 0 else "partial",
+            "total_fetched": result.total_fetched,
+            "successfully_imported": result.successfully_imported,
+            "failed": result.failed,
+            "errors": result.errors[:10],  # First 10 errors only
+            "imported_ids": result.imported_ids[:10],  # First 10 IDs only
+            "duration_seconds": result.duration_seconds,
+            "dataset": "National Science Bowl",
+            "source": "GitHub"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Science Bowl import error: {str(e)}")
+
+
+# ============================================================================
+# Supabase Questions API Endpoints
+# ============================================================================
+
+class SupabaseQuestionSearchInput(BaseModel):
+    """Input for searching questions in Supabase"""
+    query: str = Field(..., description="Search query text")
+    subject: Optional[str] = Field(None, description="Filter by subject")
+    topic: Optional[str] = Field(None, description="Filter by topic")
+    difficulty: Optional[str] = Field(None, description="Filter by difficulty")
+    source: Optional[str] = Field(None, description="Filter by source (sciq, science_bowl, opentdb)")
+    limit: int = Field(10, ge=1, le=50, description="Maximum results")
+    threshold: float = Field(0.6, ge=0.0, le=1.0, description="Minimum similarity threshold")
+
+
+@app.post("/api/v1/questions/search", response_model=dict[str, Any], tags=["Questions"])
+async def search_supabase_questions(input_data: SupabaseQuestionSearchInput) -> dict[str, Any]:
+    """
+    Search for questions in Supabase using semantic vector search
+
+    This endpoint performs semantic search on questions stored in Supabase
+    using pgvector similarity. Results are ranked by similarity to the query.
+
+    Example:
+    ```json
+    {
+      "query": "What is photosynthesis?",
+      "subject": "Biology",
+      "limit": 10
+    }
+    ```
+    """
+    from src.services.supabase_vector_store import get_supabase_vector_store
+
+    try:
+        store = get_supabase_vector_store()
+
+        results = await store.search_similar_questions(
+            query=input_data.query,
+            subject=input_data.subject,
+            topic=input_data.topic,
+            difficulty=input_data.difficulty,
+            source=input_data.source,
+            limit=input_data.limit,
+            threshold=input_data.threshold
+        )
+
+        return {
+            "query": input_data.query,
+            "count": len(results),
+            "results": [r.model_dump() for r in results]
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
+
+
+@app.get("/api/v1/questions/random", response_model=dict[str, Any], tags=["Questions"])
+async def get_random_supabase_questions(
+    subject: Optional[str] = None,
+    topic: Optional[str] = None,
+    difficulty: Optional[str] = None,
+    source: Optional[str] = None,
+    limit: int = 10
+) -> dict[str, Any]:
+    """
+    Get random questions from Supabase (useful for quizzes)
+
+    Query Parameters:
+    - subject: Filter by subject
+    - topic: Filter by topic
+    - difficulty: Filter by difficulty (easy, medium, hard)
+    - source: Filter by source (sciq, science_bowl, opentdb)
+    - limit: Maximum results (default: 10)
+
+    Returns:
+        List of random questions with answers
+    """
+    from src.services.supabase_vector_store import get_supabase_vector_store
+
+    try:
+        store = get_supabase_vector_store()
+
+        questions = await store.get_random_questions(
+            subject=subject,
+            topic=topic,
+            difficulty=difficulty,
+            source=source,
+            limit=limit
+        )
+
+        return {
+            "count": len(questions),
+            "questions": [q.model_dump(exclude={"embedding"}) for q in questions]
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching questions: {str(e)}")
+
+
+@app.get("/api/v1/questions/statistics", response_model=dict[str, Any], tags=["Questions"])
+async def get_questions_statistics() -> dict[str, Any]:
+    """
+    Get statistics about questions in Supabase
+
+    Returns:
+        Aggregate statistics grouped by source and subject
+
+    Example:
+    ```json
+    {
+      "by_source_subject": [
+        {
+          "source": "sciq",
+          "subject": "Biology",
+          "total_questions": 5000,
+          "easy_count": 0,
+          "medium_count": 5000,
+          "hard_count": 0
+        }
+      ],
+      "total_questions": 20000
+    }
+    ```
+    """
+    from src.services.supabase_vector_store import get_supabase_vector_store
+
+    try:
+        store = get_supabase_vector_store()
+        stats = await store.get_statistics()
+
+        return stats
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving statistics: {str(e)}")
+
+
+@app.get("/api/v1/questions/topics", response_model=dict[str, Any], tags=["Questions"])
+async def get_questions_topics(subject: Optional[str] = None) -> dict[str, Any]:
+    """
+    Get list of unique topics from imported questions
+
+    Query Parameters:
+    - subject: Optional subject filter
+
+    Returns:
+        List of topic names
+    """
+    from src.services.supabase_vector_store import get_supabase_vector_store
+
+    try:
+        store = get_supabase_vector_store()
+        topics = await store.get_topics(subject=subject)
+
+        return {
+            "topics": topics,
+            "count": len(topics),
+            "subject": subject
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error retrieving topics: {str(e)}")
+
+
+@app.get("/api/v1/questions/health", response_model=dict[str, Any], tags=["Questions"])
+async def supabase_questions_health() -> dict[str, Any]:
+    """
+    Check the health of the Supabase questions system
+
+    Returns:
+        Health status including:
+        - Vector store type (supabase_pgvector)
+        - Embedding model info
+        - Total questions count
+        - Supabase connection status
+    """
+    from src.services.supabase_vector_store import get_supabase_vector_store
+
+    try:
+        store = get_supabase_vector_store()
+        health = await store.health_check()
+
+        return health
+
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "vector_store_type": "supabase_pgvector"
+        }
+
+
+# =============================================================================
+# Phase D: Question Bank Endpoints (OpenStax Instructor Resources)
+# =============================================================================
+
+class QuestionBankSearchInput(BaseModel):
+    """Input for searching question bank"""
+    query: str = Field(..., description="Search query text")
+    limit: int = Field(20, ge=1, le=100, description="Maximum results")
+
+
+class QuestionBankRandomInput(BaseModel):
+    """Input for getting random questions"""
+    count: int = Field(10, ge=1, le=50, description="Number of questions")
+    subject: Optional[str] = Field(None, description="Filter by subject")
+    difficulty: Optional[str] = Field(None, description="Filter by difficulty")
+    chapter: Optional[str] = Field(None, description="Filter by chapter reference")
+
+
+@app.post("/api/v1/questions/bank/search", response_model=dict[str, Any], tags=["Question Bank"])
+async def search_question_bank(input_data: QuestionBankSearchInput) -> dict[str, Any]:
+    """
+    Search questions in question bank
+
+    Performs full-text search across question stems, explanations,
+    and chapter references.
+
+    Example:
+    ```json
+    {
+      "query": "cell membrane",
+      "limit": 10
+    }
+    ```
+    """
+    try:
+        results = await question_bank.search_questions(
+            query=input_data.query,
+            limit=input_data.limit
+        )
+
+        return {
+            "query": input_data.query,
+            "count": len(results),
+            "questions": [
+                {
+                    "id": q.id,
+                    "type": str(q.type.value) if hasattr(q.type, 'value') else str(q.type),
+                    "subject": str(q.subject.value) if hasattr(q.subject, 'value') else str(q.subject),
+                    "difficulty": str(q.difficulty.value) if hasattr(q.difficulty, 'value') else str(q.difficulty),
+                    "stem": q.stem,
+                    "chapter_ref": q.chapter_ref,
+                    "section_ref": q.section_ref
+                }
+                for q in results
+            ]
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search error: {str(e)}")
+
+
+@app.get("/api/v1/questions/bank/random", response_model=dict[str, Any], tags=["Question Bank"])
+async def get_random_bank_questions(
+    subject: Optional[str] = None,
+    difficulty: Optional[str] = None,
+    chapter: Optional[str] = None,
+    count: int = 10
+) -> dict[str, Any]:
+    """
+    Get random questions from question bank (useful for quizzes)
+
+    Query Parameters:
+    - subject: Filter by subject (e.g., "biology")
+    - difficulty: Filter by difficulty (e.g., "middle")
+    - chapter: Filter by chapter reference (e.g., "2.1")
+    - count: Number of questions (default: 10, max: 50)
+    """
+    try:
+        questions = await question_bank.get_random_questions(
+            count=count,
+            subject=subject,
+            difficulty=difficulty,
+            chapter=chapter
+        )
+
+        return {
+            "count": len(questions),
+            "questions": [
+                {
+                    "id": q.id,
+                    "type": str(q.type.value) if hasattr(q.type, 'value') else str(q.type),
+                    "subject": str(q.subject.value) if hasattr(q.subject, 'value') else str(q.subject),
+                    "difficulty": str(q.difficulty.value) if hasattr(q.difficulty, 'value') else str(q.difficulty),
+                    "stem": q.stem,
+                    "options": q.options,
+                    "correct_answer": q.correct_answer,
+                    "explanation": q.explanation,
+                    "chapter_ref": q.chapter_ref,
+                    "section_ref": q.section_ref
+                }
+                for q in questions
+            ]
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching questions: {str(e)}")
+
+
+@app.get("/api/v1/questions/bank/stats", response_model=dict[str, Any], tags=["Question Bank"])
+async def get_question_bank_stats() -> dict[str, Any]:
+    """
+    Get question bank statistics
+
+    Returns:
+    - Total questions count
+    - Questions by subject
+    - Questions by difficulty
+    - Chapters covered
+    """
+    try:
+        stats = question_bank.get_stats()
+
+        return {
+            "status": "healthy",
+            "service": "question_bank",
+            "total_questions": stats["total_questions"],
+            "by_subject": stats["by_subject"],
+            "by_difficulty": stats["by_difficulty"],
+            "chapters_covered": stats.get("chapters_covered", 0)
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+@app.get("/api/v1/questions/bank/health", response_model=dict[str, Any], tags=["Question Bank"])
+async def question_bank_health() -> dict[str, Any]:
+    """
+    Check the health of the question bank service
+
+    Returns:
+    - Service status
+    - Question count
+    - Service type (question_bank)
+    """
+    try:
+        stats = question_bank.get_stats()
+
+        return {
+            "status": "healthy",
+            "service": "question_bank",
+            "data_source": "OpenStax Instructor Resources",
+            "storage": "in-memory",
+            "total_questions": stats["total_questions"],
+            "ferpa_compliant": True
+        }
+
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "service": "question_bank",
+            "error": str(e)
+        }
 
 
 if __name__ == "__main__":

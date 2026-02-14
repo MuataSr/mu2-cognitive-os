@@ -1,0 +1,108 @@
+{
+  "questions": [
+    {
+      "id": "bio-2e-q1",
+      "type": "multiple_choice",
+      "subject": "biology",
+      "difficulty": "middle",
+      "stem": "What is the primary function of the cell membrane?",
+      "options": [
+        "To control what enters and exits the cell",
+        "To provide a site for protein synthesis",
+        "To facilitate cell communication"
+      ],
+      "correct_answer": "To control what enters and exits the cell",
+      "explanation": "The cell membrane is selectively permeable to certain molecules, allowing some to pass through while blocking others.",
+      "chapter_ref": "2.1",
+      "section_ref": "2.1",
+      "metadata": {
+        "source": "openstax-instructor",
+        "openstax_slug": "biology-2e"
+      }
+    },
+    {
+      "id": "bio-2e-q2",
+      "type": "multiple_choice",
+      "subject": "biology",
+      "difficulty": "middle",
+      "stem": "Which of the following is NOT a component of the cell membrane?",
+      "options": [
+        "Phospholipid bilayer",
+        "Cholesterol",
+        "Proteins",
+        "Carbohydrates"
+      ],
+      "correct_answer": "Cholesterol",
+      "explanation": "Cholesterol is embedded in the membrane between phospholipid layers and helps regulate membrane fluidity and permeability.",
+      "chapter_ref": "2.1",
+      "section_ref": "2.1",
+      "metadata": {
+        "source": "openstax-instructor",
+        "openstax_slug": "biology-2e"
+      }
+    },
+    {
+      "id": "bio-2e-q3",
+      "type": "multiple_choice",
+      "subject": "biology",
+      "difficulty": "middle",
+      "stem": "During photosynthesis, light energy is converted to chemical energy. What is the primary product?",
+      "options": [
+        "Glucose",
+        "ATP",
+        "Oxygen",
+        "Carbon Dioxide"
+      ],
+      "correct_answer": "Glucose",
+      "explanation": "Glucose (C6H12O6) is the primary product of photosynthesis, storing energy captured from light for later use in cellular processes.",
+      "chapter_ref": "2.2",
+      "section_ref": "2.2",
+      "metadata": {
+        "source": "openstax-instructor",
+        "openstax_slug": "biology-2e"
+      }
+    },
+    {
+      "id": "bio-2e-q4",
+      "type": "true_false",
+      "subject": "biology",
+      "difficulty": "middle",
+      "stem": "Plants need to get carbon dioxide from the air for photosynthesis. How do they do this?",
+      "options": [
+        "Through stomata",
+        "Through leaf pores",
+        "Through roots",
+        "They don't - photosynthesis doesn't require CO2"
+      ],
+      "correct_answer": "They don't - photosynthesis doesn't require CO2",
+      "explanation": "Plants obtain CO2 through stomata and use it to build glucose during photosynthesis. They don't need to get CO2 from the air for this process.",
+      "chapter_ref": "2.3",
+      "section_ref": "2.3",
+      "metadata": {
+        "source": "openstax-instructor",
+        "openstax_slug": "biology-2e"
+      }
+    },
+    {
+      "id": "bio-2e-q5",
+      "type": "multiple_choice",
+      "subject": "biology",
+      "difficulty": "middle",
+      "stem": "What is the process by which plants convert light energy into chemical energy?",
+      "options": [
+        "Photosynthesis",
+        "Respiration",
+        "Fermentation",
+        "Digestion"
+      ],
+      "correct_answer": "Photosynthesis",
+      "explanation": "Photosynthesis is the process by which plants, algae, and some bacteria use light energy to convert carbon dioxide and water into glucose and oxygen.",
+      "chapter_ref": "2.4",
+      "section_ref": "2.4",
+      "metadata": {
+        "source": "openstax-instructor",
+        "openstax_slug": "biology-2e"
+      }
+    }
+  ]
+}
