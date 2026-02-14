@@ -91,29 +91,110 @@ async def analyze_sentiment(state: MorningCircleState) -> MorningCircleState:
     return state
 
 
-# Node 2: Context Router (Fact vs Concept)
+# Node 2: Context Router (Fact vs Concept vs Hybrid)
 async def route_context(state: MorningCircleState) -> MorningCircleState:
     """
-    Route between Fact and Concept retrieval
+    Route between Fact, Concept, and Hybrid retrieval
 
-    Facts: Specific, concrete information
-    Concepts: Abstract, theoretical explanations
+    Facts: Specific, concrete information → Vector search only
+    Concepts: Abstract, theoretical explanations → Vector search only
+    Hybrid: Complex queries requiring both content and relationships → Vector + Graph search
+
+    Hybrid triggers:
+    - "relationship" queries (how is X related to Y)
+    - "prerequisite" queries (what should I learn before X)
+    - "learning path" queries
+    - Multi-concept queries
+    - Comparison queries
     """
     message = state["message"].lower()
+    words = message.split()
 
-    # Heuristic: Question words often indicate factual queries
-    fact_indicators = ["what is", "define", "who", "when", "where", "how many", "list"]
-    concept_indicators = ["explain", "why", "how does", "relationship", "compare", "theory"]
+    # Hybrid indicators (check FIRST - most specific patterns)
+    # These use word boundary matching to avoid partial matches
+    hybrid_patterns = [
+        # Relationship queries
+        ("related to", "related"),
+        ("relationship", "relationship"),
+        ("connect", "connect"),
+        # Prerequisite/learning path queries
+        ("prerequisite", "prerequisite"),
+        ("before learning", "before learning"),
+        ("should i learn", "should i learn"),
+        ("learn first", "learn first"),
+        ("learning path", "learning path"),
+        ("path to learn", "path to learn"),
+        # Comparison queries
+        ("compare", "compare"),
+        ("difference between", "difference"),
+        ("versus", "versus"),
+        (" vs ", "vs"),
+        ("similar to", "similar"),
+        ("how do", "how do"),
+    ]
 
-    if any(indicator in message for indicator in fact_indicators):
-        retrieval_type = "fact"
-    elif any(indicator in message for indicator in concept_indicators):
-        retrieval_type = "concept"
+    # Fact indicators (specific, concrete questions)
+    # Use word boundaries to avoid matching "what should" as "what is"
+    fact_patterns = [
+        ("what is ", "what_is"),  # Note the space after "is"
+        ("define ", "define"),
+        ("who is ", "who"),
+        ("who was ", "who"),
+        ("when is ", "when"),
+        ("when did ", "when"),
+        ("where is ", "where"),
+        ("how many", "how_many"),
+        ("how much", "how_much"),
+        ("list ", "list"),
+    ]
+
+    # Concept indicators (abstract, theoretical)
+    concept_patterns = [
+        ("explain ", "explain"),
+        ("why does", "why"),
+        ("why is", "why"),
+        ("how does ", "how_does"),
+        ("theory of", "theory"),
+        ("analyze", "analyze"),
+        ("describe", "describe"),
+    ]
+
+    # Check hybrid patterns FIRST (most specific)
+    for pattern, _ in hybrid_patterns:
+        if pattern in message:
+            state["retrieval_type"] = "hybrid"
+            state["routing_reason"] = f"hybrid_pattern: {pattern}"
+            return state
+
+    # Check fact patterns
+    for pattern, name in fact_patterns:
+        if pattern in message:
+            state["retrieval_type"] = "fact"
+            state["routing_reason"] = f"fact_pattern: {name}"
+            return state
+
+    # Check concept patterns
+    for pattern, name in concept_patterns:
+        if pattern in message:
+            state["retrieval_type"] = "concept"
+            state["routing_reason"] = f"concept_pattern: {name}"
+            return state
+
+    # Fallback: Analyze message complexity
+    word_count = len(words)
+
+    # Multiple clauses or complex sentences → hybrid
+    if "," in message or word_count > 50:
+        state["retrieval_type"] = "hybrid"
+        state["routing_reason"] = "complex_query"
+    # Longer queries → concept
+    elif word_count > 15:
+        state["retrieval_type"] = "concept"
+        state["routing_reason"] = "long_query"
+    # Short queries → fact
     else:
-        # Default based on message length
-        retrieval_type = "concept" if len(state["message"]) > 100 else "fact"
-
-    state["retrieval_type"] = retrieval_type
+        state["retrieval_type"] = "fact"
+        state["routing_reason"] = "short_query"
 
     return state
 

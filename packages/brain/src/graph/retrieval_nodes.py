@@ -1,12 +1,13 @@
 """
 Retrieval Nodes for Morning Circle State Machine
-Integrates vector store retrieval with LangGraph and Hybrid LLM Router
+Integrates vector store retrieval with knowledge graph retrieval
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from src.core.state import MorningCircleState
 from src.core.config import settings
 from src.services.sqlite_vector_store import sqlite_vector_store
+from src.services.graph_retrieval_service import graph_retrieval_service
 
 
 async def retrieve_facts(state: MorningCircleState) -> MorningCircleState:
@@ -75,19 +76,131 @@ async def retrieve_concepts(state: MorningCircleState) -> MorningCircleState:
     return state
 
 
+async def retrieve_from_graph(state: MorningCircleState) -> MorningCircleState:
+    """
+    Retrieve related concepts from the knowledge graph
+
+    This node performs graph traversal to find:
+    - Related concepts
+    - Prerequisites
+    - Learning paths
+    """
+    query = state["message"]
+
+    # Initialize graph service if needed
+    await graph_retrieval_service.ensure_initialized()
+
+    # Extract concepts from query
+    concepts = await graph_retrieval_service.extract_concepts_from_query(query)
+
+    if concepts:
+        # Get related concepts for each found concept
+        all_related = []
+        all_prereqs = []
+
+        for concept_name in concepts[:3]:  # Limit to top 3 concepts
+            # Get related concepts
+            related = await graph_retrieval_service.get_related_concepts(
+                concept_name,
+                max_distance=2
+            )
+            all_related.extend(related)
+
+            # Get prerequisites
+            prereqs = await graph_retrieval_service.get_prerequisites(
+                concept_name,
+                depth=2
+            )
+            all_prereqs.extend(prereqs)
+
+        # Remove duplicates
+        seen = set()
+        unique_related = []
+        for item in all_related:
+            if item["name"] not in seen:
+                seen.add(item["name"])
+                unique_related.append(item)
+
+        seen_prereqs = set()
+        unique_prereqs = []
+        for item in all_prereqs:
+            if item["name"] not in seen_prereqs and item["name"] not in seen:
+                seen_prereqs.add(item["name"])
+                unique_prereqs.append(item)
+
+        # Store in state
+        state["graph_concepts"] = unique_related[:5]  # Top 5 related
+        state["prerequisites"] = [p["name"] for p in unique_prereqs[:3]]
+
+        # Build learning path if we have multiple concepts
+        if len(concepts) >= 2:
+            path = await graph_retrieval_service.get_learning_path(
+                concepts[0],
+                concepts[1]
+            )
+            state["learning_path"] = path
+    else:
+        # No concepts found in query
+        state["graph_concepts"] = []
+        state["prerequisites"] = []
+        state["learning_path"] = []
+
+    return state
+
+
+async def retrieve_hybrid(state: MorningCircleState) -> MorningCircleState:
+    """
+    Hybrid retrieval combining vector store and knowledge graph
+
+    This node performs both vector similarity search and graph traversal
+    to provide comprehensive context for response generation.
+    """
+    query = state["message"]
+
+    # First, do vector retrieval
+    vector_state = await retrieve_facts(state)
+
+    # Then, do graph retrieval
+    graph_state = await retrieve_from_graph(vector_state)
+
+    # Merge results
+    # The retrieved_context from vector search is preserved
+    # Graph results are added as additional context
+
+    # Add graph concepts to retrieved context for generation
+    retrieved_context = graph_state.get("retrieved_context", {})
+    if retrieved_context:
+        retrieved_context["graph_enhanced"] = True
+        retrieved_context["related_concepts"] = [
+            c["name"] for c in graph_state.get("graph_concepts", [])
+        ]
+        retrieved_context["prerequisites"] = graph_state.get("prerequisites", [])
+
+    graph_state["retrieved_context"] = retrieved_context
+
+    return graph_state
+
+
 async def route_retrieval(state: MorningCircleState) -> MorningCircleState:
     """
     Route to appropriate retrieval function based on retrieval_type
 
-    This node decides whether to use fact or concept retrieval
-    based on the routing decision made earlier
+    This node decides whether to use:
+    - fact: Vector similarity search for specific information
+    - concept: Vector similarity search for conceptual information
+    - hybrid: Combined vector + graph retrieval for comprehensive understanding
     """
     retrieval_type = state.get("retrieval_type", "fact")
 
     if retrieval_type == "fact":
         return await retrieve_facts(state)
-    else:
+    elif retrieval_type == "concept":
         return await retrieve_concepts(state)
+    elif retrieval_type == "hybrid":
+        return await retrieve_hybrid(state)
+    else:
+        # Default to fact retrieval
+        return await retrieve_facts(state)
 
 
 async def generate_response_with_context(state: MorningCircleState) -> MorningCircleState:
@@ -109,6 +222,12 @@ async def generate_response_with_context(state: MorningCircleState) -> MorningCi
     user_id = state.get("user_id")
     sources = state.get("sources", [])
 
+    # Get graph results if available
+    graph_concepts = state.get("graph_concepts", [])
+    prerequisites = state.get("prerequisites", [])
+    learning_path = state.get("learning_path", [])
+    is_graph_enhanced = retrieved_context.get("graph_enhanced", False)
+
     # Check if we should use hybrid LLM routing
     use_hybrid_llm = settings.llm_hybrid_mode
 
@@ -122,8 +241,25 @@ async def generate_response_with_context(state: MorningCircleState) -> MorningCi
         if context_results:
             context_str = "\n\n".join([f"- {ctx}" for ctx in context_results[:3]])
 
+    # Add graph context if available
+    graph_context_str = ""
+    if is_graph_enhanced:
+        if graph_concepts:
+            graph_context_str += "\n\nRelated Concepts:\n"
+            for c in graph_concepts[:5]:
+                graph_context_str += f"- {c['name']}"
+                if c.get('definition'):
+                    graph_context_str += f": {c['definition'][:100]}..."
+                graph_context_str += "\n"
+
+        if prerequisites:
+            graph_context_str += f"\n\nPrerequisites to understand: {', '.join(prerequisites)}\n"
+
+        if learning_path:
+            graph_context_str += f"\n\nSuggested Learning Path: {' → '.join(learning_path)}\n"
+
     # Generate response
-    if use_hybrid_llm and context_str:
+    if use_hybrid_llm and (context_str or graph_context_str):
         # Use hybrid LLM router for intelligent response generation
         try:
             # Build prompt with citation requirement
@@ -131,13 +267,15 @@ async def generate_response_with_context(state: MorningCircleState) -> MorningCi
 
 Context from knowledge base:
 {context_str}
+{graph_context_str}
 
 Available sources: {', '.join(sources) if sources else 'None'}
 
 Student's question: {message}
 
 IMPORTANT: Your response must be grounded in the provided context. Reference specific sources when making claims.
-Provide a clear, educational response. If the context doesn't fully answer the question, acknowledge that."""
+Provide a clear, educational response. If the context doesn't fully answer the question, acknowledge that.
+{f"Leverage the related concepts and learning path shown above to provide context." if is_graph_enhanced else ""}"""
 
             llm_response = await hybrid_router.generate(
                 query=prompt,
@@ -157,12 +295,18 @@ Provide a clear, educational response. If the context doesn't fully answer the q
 
         except Exception as e:
             # Fallback to template-based response
-            response = _generate_template_response(retrieved_context, retrieval_type, sentiment, sources)
+            response = _generate_template_response(
+                retrieved_context, retrieval_type, sentiment, sources,
+                graph_concepts, prerequisites, learning_path
+            )
             state["llm_provider_used"] = "fallback"
             state["llm_routing_reason"] = f"LLM error: {str(e)}"
     else:
         # Use template-based response
-        response = _generate_template_response(retrieved_context, retrieval_type, sentiment, sources)
+        response = _generate_template_response(
+            retrieved_context, retrieval_type, sentiment, sources,
+            graph_concepts, prerequisites, learning_path
+        )
         state["llm_provider_used"] = "template"
 
     # ENFORCE CITATION LOCK
@@ -196,11 +340,22 @@ def _generate_template_response(
     retrieved_context: Dict[str, Any],
     retrieval_type: str,
     sentiment: str,
-    sources: list = None
+    sources: list = None,
+    graph_concepts: list = None,
+    prerequisites: list = None,
+    learning_path: list = None
 ) -> str:
     """Generate a template-based response when LLM is not used"""
     if sources is None:
         sources = []
+    if graph_concepts is None:
+        graph_concepts = []
+    if prerequisites is None:
+        prerequisites = []
+    if learning_path is None:
+        learning_path = []
+
+    is_graph_enhanced = retrieved_context.get("graph_enhanced", False)
 
     # Build response based on retrieved context
     if retrieved_context.get("results"):
@@ -229,6 +384,17 @@ def _generate_template_response(
             response = "I couldn't find specific facts matching your query in my knowledge base. This might be new information that needs to be added."
         else:
             response = "I don't have conceptual information about this topic in my knowledge base yet. Consider adding this concept for future reference."
+
+    # Add graph-enhanced information
+    if is_graph_enhanced:
+        if graph_concepts:
+            response += f"\n\n**Related Concepts:** {', '.join([c['name'] for c in graph_concepts[:5]])}"
+
+        if prerequisites:
+            response += f"\n\n**Prerequisites:** You may want to review: {', '.join(prerequisites)}"
+
+        if learning_path:
+            response += f"\n\n**Learning Path:** {' → '.join(learning_path)}"
 
     # Adjust response based on sentiment
     if sentiment == "negative":

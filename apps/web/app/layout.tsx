@@ -3,8 +3,7 @@ import { Montserrat } from "next/font/google";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { ModeProvider } from "@/components/providers/mode-provider";
-import { FocusModeToggle } from "@/components/focus-mode-toggle";
-import { KeyboardShortcutsButton } from "@/components/keyboard-shortcuts";
+import { ClientBodyWrapper } from "@/components/client-body-wrapper";
 
 // Kut Different Fonts: Montserrat (headings) and Inter (body)
 const montserrat = Montserrat({
@@ -35,12 +34,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={`${montserrat.variable} ${inter.variable} antialiased`}>
         <ModeProvider>
-          <a href="#main-content" className="skip-link">
-            Skip to main content
-          </a>
-          <FocusModeToggle />
-          <main id="main-content">{children}</main>
-          <KeyboardShortcutsButton />
+          <ClientBodyWrapper>{children}</ClientBodyWrapper>
         </ModeProvider>
       </body>
     </html>

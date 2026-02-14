@@ -25,11 +25,17 @@ class MorningCircleState(TypedDict):
     sentiment_label: str
 
     # Context Routing
-    retrieval_type: Literal["fact", "concept"]
+    retrieval_type: Literal["fact", "concept", "hybrid"]
 
     # Retrieval Results
     sources: Annotated[list[str], add]
     retrieved_context: dict[str, Any]
+
+    # Knowledge Graph Results
+    graph_concepts: Annotated[list[dict[str, Any]], add]  # Related concepts from graph
+    graph_relationships: Annotated[list[dict[str, Any]], add]  # Concept relationships
+    learning_path: Optional[list[str]]  # Suggested learning path
+    prerequisites: Optional[list[str]]  # Required concepts for current query
 
     # Response Generation
     response: str

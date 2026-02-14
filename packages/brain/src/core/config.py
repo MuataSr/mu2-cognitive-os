@@ -23,6 +23,14 @@ def find_project_root() -> Path:
 PROJECT_ROOT = find_project_root()
 ENV_FILE = PROJECT_ROOT / ".env"
 
+# Data directories
+DATA_DIR = PROJECT_ROOT / "packages" / "brain" / "data"
+OPENSTAX_DATA_DIR = DATA_DIR / "openstax"
+OPENSTAX_PDFS_DIR = OPENSTAX_DATA_DIR / "pdfs"
+OPENSTAX_CHAPTERS_DIR = OPENSTAX_DATA_DIR / "chapters"
+OPENSTAX_EMBEDDINGS_DIR = OPENSTAX_DATA_DIR / "embeddings"
+OPENSTAX_CHUNKS_DIR = OPENSTAX_DATA_DIR / "chunks"
+
 class Settings(BaseSettings):
     """Application settings"""
 
@@ -70,6 +78,32 @@ class Settings(BaseSettings):
     # Embeddings
     embedding_model: str = "nomic-embed-text"
     embedding_dimension: int = 768  # nomic-embed-text produces 768-dim embeddings
+
+    # ============================================================================
+    # OpenStax Instructor Resources Configuration
+    # ============================================================================
+    # OpenStax provides instructor resources including test banks that can be
+    # downloaded and imported locally. No API key required.
+
+    # Instructor Resources Base URL
+    openstax_instructor_base: str = "https://openstax.org"
+
+    # Available instructor test banks
+    openstax_test_banks: list[str] = [
+        "biology-2e",           # Biology 2e (matches our loaded content)
+        "anatomy-physiology",   # Anatomy & Physiology
+        "chemistry-of-life",     # Chemistry of Life (for bio)
+        "concepts-biology",      # Concepts of Biology
+    ]
+
+    # Import batch size
+    question_import_batch_size: int = 50
+
+    # Maximum questions to import per test bank
+    question_import_max_count: int = 500
+
+    # Question storage location (relative to data directory)
+    question_storage_path: str = "questions"
 
     # ============================================================================
     # Hybrid LLM Configuration

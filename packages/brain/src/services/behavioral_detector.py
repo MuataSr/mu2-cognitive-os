@@ -132,7 +132,7 @@ class BehavioralDetector:
 
         if error_count >= self.FRUSTRATION_ERROR_THRESHOLD:
             reasoning.append(f"{error_count} consecutive errors detected")
-            confidence += 0.4
+            confidence += 0.5  # 3+ errors alone triggers frustration
 
         # Check for rapid incorrect attempts
         rapid_failures = 0
@@ -173,6 +173,7 @@ class BehavioralDetector:
         confidence = 0.0
 
         # Check click frequency
+        is_rapid_clicking = False  # Flag for very high click rates
         if clickstream:
             # Calculate clicks per minute
             time_span = (clickstream[-1].timestamp - clickstream[0].timestamp).total_seconds()
@@ -182,8 +183,14 @@ class BehavioralDetector:
                     reasoning.append(f"Healthy click rate: {clicks_per_minute:.1f}/min")
                     confidence += 0.3
                 elif clicks_per_minute > 50:
-                    reasoning.append(f"Very high click rate: {clicks_per_minute:.1f}/min (may indicate frustration)")
-                    confidence -= 0.2
+                    reasoning.append(f"Very high click rate: {clicks_per_minute:.1f}/min (indicates frustration)")
+                    confidence = 0.0  # High click rate = NOT engaged
+                    is_rapid_clicking = True
+
+        # Skip other engagement checks if rapid clicking detected
+        if is_rapid_clicking:
+            is_engaged = False
+            return is_engaged, confidence, reasoning
 
         # Check time on task
         if 30 <= time_on_task <= 600:  # 30s to 10min is good engagement
@@ -229,7 +236,7 @@ class BehavioralDetector:
         # Check time on task
         if time_on_task > self.STRUGGLING_TIME_THRESHOLD:
             reasoning.append(f"Long time on task: {time_on_task}s")
-            confidence += 0.3
+            confidence += 0.5  # >2min alone triggers struggling
 
         # Check if retrying same skill multiple times
         if recent_events:

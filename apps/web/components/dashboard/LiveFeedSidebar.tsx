@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getRecentEvents, formatLastActive, type LiveFeedEvent } from "@/lib/api/mastery";
+import { getRecentEvents, formatLastActive, maskStudentId, type LiveFeedEvent } from "@/lib/api/mastery";
 
 /**
  * LiveFeedSidebar - Vertical timeline of recent learning events
@@ -138,7 +138,8 @@ export function LiveFeedSidebar({
                 {event.source_text || "Learning activity"}
               </p>
               <p className="text-xs text-[color:var(--kd-text-muted)]">
-                {event.user_id} • {formatLastActive(event.timestamp)}
+                {/* Mask user ID for FERPA compliance */}
+                {maskStudentId(event.user_id, "mentor")} • {formatLastActive(event.timestamp)}
               </p>
             </div>
           </div>

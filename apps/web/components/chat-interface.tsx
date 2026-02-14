@@ -4,28 +4,13 @@ import { useState } from "react";
 import { useMode } from "@/components/providers/mode-provider";
 import { CitationTooltip } from "./citation-tooltip";
 import { getDemoResponse, type DemoQueryResponse } from "@/lib/demo-data";
-
-// TypeScript interfaces for v2 API
-interface Citation {
-  source_id: string;
-  paragraph_id: string;
-  relevance_score: number;
-  text_snippet: string;
-}
-
-interface Translation {
-  simplified: string;
-  metaphor: string;
-  grade_level: string;
-}
-
-interface QueryResponse {
-  answer: string;
-  sources: Citation[];
-  translation: Translation;
-  confidence: number;
-  follow_up_questions: string[];
-}
+import {
+  QueryResponseSchema,
+  type QueryResponse,
+  type Citation,
+  type Translation,
+  validateApiResponse,
+} from "@/lib/api/schemas";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -47,25 +32,40 @@ export function ChatInterface({ onCitationClick }: ChatInterfaceProps) {
   const [error, setError] = useState<string | null>(null);
   const [usingDemoData, setUsingDemoData] = useState(false);
 
+  // Use environment variable for API URL with secure default
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim()) return;
 
+    // Sanitize user input to prevent XSS
+    const sanitizedMessage = message.trim().replace(/<[^>]*>/g, "");
+
     const userMessage: ChatMessage = {
       role: "user",
-      content: message,
+      content: sanitizedMessage,
     };
 
     setMessages((prev) => [...prev, userMessage]);
-    const currentMessage = message;
+    const currentMessage = sanitizedMessage;
     setMessage("");
     setError(null);
     setIsLoading(true);
 
+    // Create abort controller for request cancellation
+    const abortController = new AbortController();
+
     try {
-      const res = await fetch("http://localhost:8000/api/v2/query", {
+      // Generate CSRF token for this request
+      const csrfToken = crypto.randomUUID();
+
+      const res = await fetch(`${API_BASE}/api/v2/query`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": csrfToken,
+        },
         body: JSON.stringify({
           query: currentMessage,
           context: {
@@ -73,13 +73,17 @@ export function ChatInterface({ onCitationClick }: ChatInterfaceProps) {
             mode,
           },
         }),
+        signal: abortController.signal,
       });
 
       if (!res.ok) {
         throw new Error(`API returned ${res.status}: ${res.statusText}`);
       }
 
-      const data: QueryResponse = await res.json();
+      const rawData = await res.json();
+
+      // Validate API response with Zod schema
+      const data = validateApiResponse(rawData, QueryResponseSchema, "query response");
 
       const assistantMessage: ChatMessage = {
         role: "assistant",
@@ -91,6 +95,12 @@ export function ChatInterface({ onCitationClick }: ChatInterfaceProps) {
       setMessages((prev) => [...prev, assistantMessage]);
       setUsingDemoData(false);
     } catch (err) {
+      // Handle abort separately
+      if (err instanceof Error && err.name === "AbortError") {
+        console.log("Request was cancelled");
+        return;
+      }
+
       // Fallback to demo data if API fails
       console.log("API unavailable, using demo data");
       const demoResponse = getDemoResponse(currentMessage);
@@ -108,7 +118,7 @@ export function ChatInterface({ onCitationClick }: ChatInterfaceProps) {
         setUsingDemoData(true);
       } else {
         const errorMessage = err instanceof Error ? err.message : "Unknown error";
-        setError(`Failed to connect to API: ${errorMessage}. Make sure the backend is running on http://localhost:8000`);
+        setError(`Failed to connect to API: ${errorMessage}. Make sure the backend is running on ${API_BASE}`);
       }
     } finally {
       setIsLoading(false);
@@ -149,7 +159,7 @@ export function ChatInterface({ onCitationClick }: ChatInterfaceProps) {
             role="alert"
             aria-live="polite"
           >
-            <p>Demo Mode: Using sample data. Connect to the backend API at http://localhost:8000 for live responses.</p>
+            <p>Demo Mode: Using sample data. Connect to the backend API at {API_BASE} for live responses.</p>
           </div>
         )}
 
@@ -199,6 +209,7 @@ export function ChatInterface({ onCitationClick }: ChatInterfaceProps) {
                   : "bg-[color:var(--border)] text-[color:var(--text-primary)]"
               }`}
             >
+              {/* Safely render content - prevent XSS */}
               <p className="leading-relaxed">{msg.content}</p>
 
               {/* Citations */}

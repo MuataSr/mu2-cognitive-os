@@ -14,7 +14,7 @@
  * 5. Announces mode changes to screen readers (WCAG 2.1 AA)
  */
 
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
 
 // Extend mode type to include new modes
 type Mode =
@@ -54,6 +54,9 @@ interface ModeContextType {
   availableModes: Mode[];
   isAdaptive: boolean; // Whether adaptive switching is enabled
   setAdaptive: (enabled: boolean) => void; // Enable/disable auto-switching
+  // Behavioral state
+  backendSuggestedMode: Mode | null;
+  behavioralUrgency: string;
 }
 
 // Type guard to validate Mode values
@@ -66,16 +69,36 @@ const ModeContext = createContext<ModeContextType | undefined>(undefined);
 const MODE_STORAGE_KEY = "mu2-mode";
 const ADAPTIVE_MODE_KEY = "mu2-adaptive-enabled";
 
+// API base URL for behavioral status
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 export function ModeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<Mode>("standard");
   const [isAdaptive, setIsAdaptiveState] = useState(true); // Adaptive mode enabled by default
   const [isInitialized, setIsInitialized] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
-  // Initialize mode from localStorage on mount
+  // Behavioral integration state
+  const [userId] = useState("current-user"); // TODO: Get from auth
+  const [backendSuggestedMode, setBackendSuggestedMode] = useState<Mode | null>(null);
+  const [behavioralUrgency, setBehavioralUrgency] = useState<string>("none");
+  const pollIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // Initialize mode from localStorage on mount and check reduced motion preference
   useEffect(() => {
     try {
       const savedMode = localStorage.getItem(MODE_STORAGE_KEY);
       const savedAdaptive = localStorage.getItem(ADAPTIVE_MODE_KEY);
+
+      // Check for reduced motion preference
+      const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+      setPrefersReducedMotion(mediaQuery.matches);
+
+      // Listen for changes to reduced motion preference
+      const handleChange = (e: MediaQueryListEvent) => {
+        setPrefersReducedMotion(e.matches);
+      };
+      mediaQuery.addEventListener('change', handleChange);
 
       // Validate the saved value before using it
       if (savedMode && isValidMode(savedMode)) {
@@ -90,6 +113,11 @@ export function ModeProvider({ children }: { children: ReactNode }) {
       if (savedAdaptive !== null) {
         setIsAdaptiveState(savedAdaptive === "true");
       }
+
+      // Cleanup listener on unmount
+      return () => {
+        mediaQuery.removeEventListener('change', handleChange);
+      };
     } catch (error) {
       // Handle potential localStorage access errors (e.g., in incognito mode)
       console.error("Error accessing localStorage:", error);
@@ -144,7 +172,93 @@ export function ModeProvider({ children }: { children: ReactNode }) {
         document.body.removeChild(announcement);
       }
     }, 1000);
-  }, [mode, isInitialized]);
+  }, [mode, isInitialized, prefersReducedMotion]);
+
+  // Behavioral API polling - Auto-switch mode based on backend suggestions
+  useEffect(() => {
+    // Only poll if:
+    // 1. Component is initialized
+    // 2. Adaptive mode is enabled
+    // 3. We have a userId
+    if (!isInitialized || !isAdaptive || !userId) {
+      return;
+    }
+
+    /**
+     * Fetch behavioral status from backend and auto-switch if needed
+     */
+    const fetchBehavioralStatus = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/api/v1/behavioral/status/${userId}`);
+
+        if (!response.ok) {
+          console.warn(`[Behavioral] Failed to fetch status: ${response.status}`);
+          return;
+        }
+
+        const data = await response.json();
+
+        // Update urgency for UI display
+        if (data.urgency) {
+          setBehavioralUrgency(data.urgency);
+        }
+
+        // Check if backend suggests a different mode
+        const suggested = data.suggested_mode;
+        if (suggested && isValidMode(suggested) && suggested !== mode) {
+          console.log(`[Behavioral] Auto-switching to ${suggested} (urgency: ${data.urgency})`);
+
+          // Auto-switch to suggested mode
+          setModeState(suggested);
+
+          // Enhanced ARIA announcement for automatic mode changes
+          const announcement = document.createElement("div");
+          announcement.setAttribute("role", "status");
+          announcement.setAttribute("aria-live", "polite");
+          announcement.setAttribute("aria-atomic", "true");
+          announcement.className = "sr-only";
+
+          const urgencyMessages: Record<string, string> = {
+            none: "based on your learning patterns",
+            attention: "to help you focus",
+            intervention: "to provide additional support"
+          };
+
+          announcement.textContent = `Mode automatically changed to ${suggested} ${urgencyMessages[data.urgency] || urgencyMessages.none}`;
+          document.body.appendChild(announcement);
+
+          setTimeout(() => {
+            if (announcement.parentNode) {
+              document.body.removeChild(announcement);
+            }
+          }, 1000);
+        }
+
+        // Store backend suggestion for reference
+        setBackendSuggestedMode(suggested);
+
+      } catch (error) {
+        console.error("[Behavioral] Error fetching status:", error);
+        // Don't switch mode on error - keep current mode
+      }
+    };
+
+    // Initial fetch
+    fetchBehavioralStatus();
+
+    // Set up polling interval (every 10 seconds)
+    pollIntervalRef.current = setInterval(() => {
+      fetchBehavioralStatus();
+    }, 10000);
+
+    // Cleanup on unmount or when adaptive mode changes
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, [isInitialized, isAdaptive, userId, mode]);
 
   // Apply mode-specific CSS variables
   const applyModeStyles = useCallback((currentMode: Mode) => {
@@ -153,6 +267,15 @@ export function ModeProvider({ children }: { children: ReactNode }) {
     // Reset base styles
     root.style.removeProperty("--font-scale");
     root.style.removeProperty("--line-height");
+
+    // Force snap transition if user prefers reduced motion
+    if (prefersReducedMotion) {
+      root.style.setProperty("--transition-style", "snap");
+      document.body.classList.add("force-reduced-motion");
+    } else {
+      root.style.setProperty("--transition-style", "morph");
+      document.body.classList.remove("force-reduced-motion");
+    }
 
     switch (currentMode) {
       case "focus":
@@ -199,7 +322,7 @@ export function ModeProvider({ children }: { children: ReactNode }) {
         // Standard mode - no overrides
         break;
     }
-  }, []);
+  }, [prefersReducedMotion]);
 
   const setMode = useCallback((newMode: Mode) => {
     // Validate before setting
@@ -236,6 +359,8 @@ export function ModeProvider({ children }: { children: ReactNode }) {
         availableModes: AVAILABLE_MODES,
         isAdaptive,
         setAdaptive,
+        backendSuggestedMode,
+        behavioralUrgency,
       }}
     >
       {children}
